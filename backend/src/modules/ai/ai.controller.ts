@@ -93,6 +93,8 @@ export class AiController {
     @Req() req: any,
     @Res() res: Response,
   ) {
+    console.log(`[stream-chat] Received: message="${body.message?.slice(0, 30)}", model=${body.model}, sessionId=${body.sessionId}`);
+
     const defaultModel = this.aiService.getDefaultModel();
     if (!defaultModel) {
       res.setHeader('Content-Type', 'text/event-stream');
@@ -115,8 +117,10 @@ export class AiController {
 
     if (body.sessionId) {
       const userId = this.authService.getUserIdFromRequest(req);
+      console.log(`[stream-chat] userId from token: ${userId}`);
       if (userId) {
         const history = await this.aiService.loadSessionHistory(body.sessionId);
+        console.log(`[stream-chat] Loaded ${history.length} history messages`);
         msgs.push(...history);
       }
     }
@@ -125,16 +129,24 @@ export class AiController {
 
     try {
       const fullContent = await this.aiService.chatStream(selectedModel, msgs, res);
+      console.log(`[stream-chat] Stream complete, content length: ${fullContent.length}`);
 
       // Save messages to database if session exists
       if (body.sessionId) {
         const userId = this.authService.getUserIdFromRequest(req);
         if (userId) {
+          console.log(`[stream-chat] Saving messages to session ${body.sessionId}`);
           await this.aiService.saveMessages(body.sessionId, body.message, fullContent, selectedModel.id);
+          console.log(`[stream-chat] Messages saved successfully`);
+        } else {
+          console.log(`[stream-chat] No userId, skipping save`);
         }
+      } else {
+        console.log(`[stream-chat] No sessionId, skipping save`);
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error';
+      console.error(`[stream-chat] Error:`, message);
       if (!res.headersSent) {
         res.setHeader('Content-Type', 'text/event-stream');
         res.flushHeaders();

@@ -168,20 +168,31 @@ export class AiService implements OnModuleInit {
   }
 
   async saveMessages(sessionId: string, userContent: string, aiContent: string, modelId: string) {
-    await this.prisma.message.createMany({
-      data: [
-        { role: 'user', content: userContent, model: modelId, sessionId },
-        { role: 'assistant', content: aiContent, model: modelId, sessionId },
-      ],
-    });
+    console.log(`[saveMessages] Saving to session ${sessionId}, model: ${modelId}`);
+    console.log(`[saveMessages] User: "${userContent.slice(0, 50)}...", AI: "${aiContent.slice(0, 50)}..."`);
 
-    // Auto-name session based on first message
-    const msgCount = await this.prisma.message.count({ where: { sessionId } });
-    if (msgCount <= 2) {
+    try {
+      await this.prisma.message.createMany({
+        data: [
+          { role: 'user', content: userContent, model: modelId, sessionId },
+          { role: 'assistant', content: aiContent, model: modelId, sessionId },
+        ],
+      });
+
+      // Always update session updatedAt and auto-name based on first message
+      const msgCount = await this.prisma.message.count({ where: { sessionId } });
+      const updateData: Record<string, unknown> = { updatedAt: new Date() };
+      if (msgCount <= 2) {
+        updateData.title = userContent.slice(0, 30) + (userContent.length > 30 ? '...' : '');
+      }
       await this.prisma.session.update({
         where: { id: sessionId },
-        data: { title: userContent.slice(0, 30) + (userContent.length > 30 ? '...' : '') },
+        data: updateData,
       });
+
+      console.log(`[saveMessages] Success. Total messages in session: ${msgCount}`);
+    } catch (err) {
+      console.error(`[saveMessages] Failed:`, err);
     }
   }
 }
