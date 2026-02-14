@@ -1,0 +1,15 @@
+node_modules/
+.env
+.env.local
+.next/
+dist/
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.log
+coverage/
+start.bat
+start.ps1
+package-lock.json
+tsconfig.tsbuildinfo
