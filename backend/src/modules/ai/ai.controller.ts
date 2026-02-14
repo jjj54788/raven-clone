@@ -1,17 +1,25 @@
 import { Controller, Get, Post, Body, Req, Res } from '@nestjs/common';
 import { Response } from 'express';
+import { tavily } from '@tavily/core';
 import { AiService } from './ai.service';
 import { AuthService } from '../auth/auth.service';
 
 const DEFAULT_SYSTEM_PROMPT = 'You are Raven AI, a helpful assistant. Reply in the same language as the user.';
 
-const WEB_SEARCH_SYSTEM_PROMPT = `You are Raven AI, a helpful assistant with web search capabilities. When answering:
-1. Act as if you have access to real-time web search results.
-2. Present information in a well-structured format with sources.
-3. Use markdown formatting: headers, bullet points, and bold for key terms.
-4. Include "[Source: ...]" references to make responses look like they include web citations.
-5. Provide up-to-date, comprehensive answers as if you searched the web.
-6. Reply in the same language as the user.`;
+function buildWebSearchPrompt(searchResults: string): string {
+  return `You are Raven AI, a helpful assistant with web search capabilities. You have just performed a web search and obtained the following results:
+
+<search_results>
+${searchResults}
+</search_results>
+
+Instructions:
+1. Answer the user's question based on the search results above.
+2. Use markdown formatting: headers, bullet points, and bold for key terms.
+3. Cite sources using [Source Title](URL) format when referencing specific information.
+4. If the search results don't fully answer the question, say so and provide what you can.
+5. Reply in the same language as the user.`;
+}
 
 @Controller('api/v1/ai')
 export class AiController {
@@ -49,7 +57,12 @@ export class AiController {
       ? this.aiService.getModelById(body.model) || defaultModel
       : defaultModel;
 
-    const systemPrompt = body.webSearch ? WEB_SEARCH_SYSTEM_PROMPT : DEFAULT_SYSTEM_PROMPT;
+    // Web search if enabled
+    let systemPrompt = DEFAULT_SYSTEM_PROMPT;
+    if (body.webSearch) {
+      const searchResults = await this.performWebSearch(body.message);
+      systemPrompt = buildWebSearchPrompt(searchResults);
+    }
 
     // Build message history
     const msgs: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
@@ -124,7 +137,14 @@ export class AiController {
       ? this.aiService.getModelById(body.model) || defaultModel
       : defaultModel;
 
-    const systemPrompt = body.webSearch ? WEB_SEARCH_SYSTEM_PROMPT : DEFAULT_SYSTEM_PROMPT;
+    // Web search if enabled
+    let systemPrompt = DEFAULT_SYSTEM_PROMPT;
+    if (body.webSearch) {
+      console.log(`[stream-chat] Performing web search for: "${body.message.slice(0, 50)}"`);
+      const searchResults = await this.performWebSearch(body.message);
+      systemPrompt = buildWebSearchPrompt(searchResults);
+      console.log(`[stream-chat] Web search complete, results length: ${searchResults.length}`);
+    }
 
     // Build message history
     const msgs: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
@@ -169,6 +189,35 @@ export class AiController {
       }
       res.write(`data: ${JSON.stringify({ error: message, done: true })}\n\n`);
       res.end();
+    }
+  }
+
+  /**
+   * Perform web search using Tavily API
+   */
+  private async performWebSearch(query: string): Promise<string> {
+    const apiKey = process.env.TAVILY_API_KEY;
+    if (!apiKey) {
+      console.warn('[webSearch] TAVILY_API_KEY not configured, returning fallback');
+      return 'Web search is not available. TAVILY_API_KEY is not configured in backend/.env';
+    }
+
+    try {
+      const tvly = tavily({ apiKey });
+      const response = await tvly.search(query, {
+        maxResults: 5,
+        searchDepth: 'basic',
+      });
+
+      const results = response.results.map((r, i) =>
+        `[${i + 1}] ${r.title}\nURL: ${r.url}\nContent: ${r.content}`
+      ).join('\n\n');
+
+      return results || 'No search results found.';
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      console.error('[webSearch] Tavily search failed:', message);
+      return `Web search failed: ${message}`;
     }
   }
 }
