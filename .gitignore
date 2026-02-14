@@ -9,5 +9,7 @@ Thumbs.db
 .idea/
 *.log
 coverage/
+start.bat
+start.ps1
 package-lock.json
 tsconfig.tsbuildinfo
