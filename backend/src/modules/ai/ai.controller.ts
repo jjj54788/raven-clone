@@ -4,10 +4,18 @@ import { tavily } from '@tavily/core';
 import { AiService } from './ai.service';
 import { AuthService } from '../auth/auth.service';
 
-const DEFAULT_SYSTEM_PROMPT = 'You are Raven AI, a helpful assistant. Reply in the same language as the user.';
+function getCurrentDate(): string {
+  return new Date().toISOString().split('T')[0]; // e.g. "2026-02-14"
+}
+
+function getDefaultSystemPrompt(): string {
+  return `You are Raven AI, a helpful assistant. Today's date is ${getCurrentDate()}. Reply in the same language as the user.`;
+}
 
 function buildWebSearchPrompt(searchResults: string): string {
-  return `You are Raven AI, a helpful assistant with web search capabilities. You have just performed a web search and obtained the following results:
+  return `You are Raven AI, a helpful assistant with web search capabilities. Today's date is ${getCurrentDate()}.
+
+You have just performed a web search and obtained the following results:
 
 <search_results>
 ${searchResults}
@@ -26,7 +34,14 @@ export class AiController {
   constructor(
     private readonly aiService: AiService,
     private readonly authService: AuthService,
-  ) {}
+  ) {
+    // Log Tavily status on startup
+    if (process.env.TAVILY_API_KEY) {
+      console.log('[AI] Tavily Web Search: ENABLED (API key configured)');
+    } else {
+      console.warn('[AI] Tavily Web Search: DISABLED (TAVILY_API_KEY not set in .env)');
+    }
+  }
 
   @Get('models')
   getModels() {
@@ -58,7 +73,7 @@ export class AiController {
       : defaultModel;
 
     // Web search if enabled
-    let systemPrompt = DEFAULT_SYSTEM_PROMPT;
+    let systemPrompt = getDefaultSystemPrompt();
     if (body.webSearch) {
       const searchResults = await this.performWebSearch(body.message);
       systemPrompt = buildWebSearchPrompt(searchResults);
@@ -138,7 +153,7 @@ export class AiController {
       : defaultModel;
 
     // Web search if enabled
-    let systemPrompt = DEFAULT_SYSTEM_PROMPT;
+    let systemPrompt = getDefaultSystemPrompt();
     if (body.webSearch) {
       console.log(`[stream-chat] Performing web search for: "${body.message.slice(0, 50)}"`);
       const searchResults = await this.performWebSearch(body.message);
@@ -197,26 +212,39 @@ export class AiController {
    */
   private async performWebSearch(query: string): Promise<string> {
     const apiKey = process.env.TAVILY_API_KEY;
+    console.log(`[webSearch] API key present: ${!!apiKey}, key prefix: ${apiKey ? apiKey.slice(0, 8) + '...' : 'N/A'}`);
+
     if (!apiKey) {
       console.warn('[webSearch] TAVILY_API_KEY not configured, returning fallback');
       return 'Web search is not available. TAVILY_API_KEY is not configured in backend/.env';
     }
 
     try {
+      console.log(`[webSearch] Searching Tavily for: "${query}"`);
       const tvly = tavily({ apiKey });
       const response = await tvly.search(query, {
         maxResults: 5,
         searchDepth: 'basic',
       });
 
-      const results = response.results.map((r, i) =>
-        `[${i + 1}] ${r.title}\nURL: ${r.url}\nContent: ${r.content}`
-      ).join('\n\n');
+      console.log(`[webSearch] Got ${response.results?.length || 0} results`);
 
-      return results || 'No search results found.';
+      if (!response.results || response.results.length === 0) {
+        console.log('[webSearch] No results returned');
+        return 'No search results found.';
+      }
+
+      const results = response.results.map((r, i) => {
+        console.log(`[webSearch]   [${i + 1}] ${r.title} - ${r.url}`);
+        return `[${i + 1}] ${r.title}\nURL: ${r.url}\nContent: ${r.content}`;
+      }).join('\n\n');
+
+      console.log(`[webSearch] Final results length: ${results.length} chars`);
+      return results;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       console.error('[webSearch] Tavily search failed:', message);
+      console.error('[webSearch] Full error:', err);
       return `Web search failed: ${message}`;
     }
   }
