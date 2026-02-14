@@ -4,7 +4,7 @@ import { useState } from 'react';
 import {
   Settings, Search, BookOpen, Eye, FlaskConical,
   FileText, Users, Target, LayoutGrid, PenTool,
-  Store, Bell, Globe, ChevronLeft, Monitor, LogOut,
+  Store, Bell, Globe, ChevronLeft, ChevronRight, Monitor, Menu, LogOut,
 } from 'lucide-react';
 import { clearToken } from '@/lib/api';
 
@@ -67,24 +67,50 @@ export default function Sidebar({ collapsed, onToggle, onShowHistory, userName }
     >
       {/* Header */}
       <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-3">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-purple-600 text-sm font-bold text-white">
+        <div
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-purple-600 text-sm font-bold text-white cursor-pointer"
+          onClick={collapsed ? onToggle : undefined}
+          title={collapsed ? 'Expand sidebar' : undefined}
+        >
           R
         </div>
-        {!collapsed && (
+        {collapsed ? (
+          <>{/* Collapsed: show expand and history buttons below logo */}</>
+        ) : (
           <>
             <span className="text-sm font-semibold text-gray-900">Raven</span>
             <span className="rounded bg-purple-100 px-1.5 py-0.5 text-[10px] font-medium text-purple-700">
               v3.70.0
             </span>
-            <button onClick={onShowHistory} className="ml-auto rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600">
+            <button onClick={onShowHistory} className="ml-auto rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600" title="Chat History">
               <Monitor size={14} />
             </button>
-            <button onClick={onToggle} className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600">
+            <button onClick={onToggle} className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600" title="Collapse sidebar">
               <ChevronLeft size={14} />
             </button>
           </>
         )}
       </div>
+
+      {/* Collapsed: action buttons */}
+      {collapsed && (
+        <div className="flex flex-col items-center gap-1 border-b border-gray-100 px-2 py-2">
+          <button
+            onClick={onToggle}
+            className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+            title="Expand sidebar"
+          >
+            <ChevronRight size={16} />
+          </button>
+          <button
+            onClick={onShowHistory}
+            className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+            title="Chat History"
+          >
+            <Menu size={16} />
+          </button>
+        </div>
+      )}
 
       {/* Menu */}
       <nav className="flex-1 overflow-y-auto px-2 py-2">
@@ -116,7 +142,7 @@ export default function Sidebar({ collapsed, onToggle, onShowHistory, userName }
 
       {/* Footer */}
       <div className="border-t border-gray-100 px-2 py-2 space-y-1">
-        <a href="#" className={`flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm text-gray-600 hover:bg-gray-50 ${collapsed ? 'justify-center' : ''}`}>
+        <a href="#" className={`flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm text-gray-600 hover:bg-gray-50 ${collapsed ? 'justify-center' : ''}`} title={collapsed ? 'Notifications' : undefined}>
           <Bell size={16} />
           {!collapsed && <span>Notifications</span>}
         </a>
@@ -133,7 +159,7 @@ export default function Sidebar({ collapsed, onToggle, onShowHistory, userName }
             </button>
           )}
         </div>
-        <a href="#" className={`flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm text-gray-600 hover:bg-gray-50 ${collapsed ? 'justify-center' : ''}`}>
+        <a href="#" className={`flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm text-gray-600 hover:bg-gray-50 ${collapsed ? 'justify-center' : ''}`} title={collapsed ? '中文' : undefined}>
           <Globe size={16} />
           {!collapsed && <span>中文</span>}
         </a>
