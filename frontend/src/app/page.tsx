@@ -54,6 +54,9 @@ export default function Home() {
       if (!sessionId) {
         console.log('[handleSend] No session, creating one...');
         const newSession = await createSession();
+        if (!newSession?.id) {
+          throw new Error('Failed to create session. Please log out and log back in.');
+        }
         sessionId = newSession.id;
         currentSessionIdRef.current = sessionId;
         setActiveSessionId(sessionId);

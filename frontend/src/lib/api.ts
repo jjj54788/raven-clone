@@ -32,11 +32,33 @@ async function apiFetch(path: string, options: RequestInit = {}) {
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
   const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+
   if (res.status === 401) {
     clearToken();
     if (typeof window !== 'undefined') window.location.href = '/login';
     throw new Error('Unauthorized');
   }
+
+  if (!res.ok) {
+    // Try to extract error message from response body
+    let errorMsg = `HTTP ${res.status}`;
+    try {
+      const body = await res.json();
+      errorMsg = body.message || body.error || errorMsg;
+    } catch {
+      // ignore parse errors
+    }
+
+    // If 500 and it looks like a user/auth issue, clear token and redirect
+    if (res.status === 500 && errorMsg.includes('foreign key')) {
+      console.error('[apiFetch] Database integrity error, clearing token');
+      clearToken();
+      if (typeof window !== 'undefined') window.location.href = '/login';
+    }
+
+    throw new Error(errorMsg);
+  }
+
   return res.json();
 }
 
