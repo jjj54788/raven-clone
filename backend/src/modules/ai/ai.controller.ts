@@ -55,7 +55,7 @@ async function callGemini(modelId: string, msgs: Array<{ role: string; content: 
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(reqBody),
   });
-  const data = await res.json();
+  const data: any = await res.json();
   return data.candidates?.[0]?.content?.parts?.[0]?.text || 'No response from Gemini';
 }
 
