@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   getSessions,
   createSession,
@@ -43,13 +43,21 @@ export function useSessions(authReady: boolean) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [initialized, setInitialized] = useState(false);
 
+  // Use ref to always have current activeSessionId in callbacks
+  const activeSessionIdRef = useRef<string | null>(null);
+  activeSessionIdRef.current = activeSessionId;
+
   const loadSessions = useCallback(async () => {
     try {
+      console.log('[useSessions] Loading sessions...');
       const data = await getSessions();
-      if (Array.isArray(data)) setSessions(data);
+      if (Array.isArray(data)) {
+        console.log(`[useSessions] Loaded ${data.length} sessions`);
+        setSessions(data);
+      }
       return data;
     } catch (err) {
-      console.error('Failed to load sessions:', err);
+      console.error('[useSessions] Failed to load sessions:', err);
       return [];
     }
   }, []);
@@ -61,10 +69,11 @@ export function useSessions(authReady: boolean) {
     const init = async () => {
       const data = await loadSessions();
       const savedId = getSavedSessionId();
+      console.log('[useSessions] Init: savedId =', savedId);
 
       if (savedId && Array.isArray(data) && data.some((s: Session) => s.id === savedId)) {
-        // Restore the saved session
         setActiveSessionId(savedId);
+        activeSessionIdRef.current = savedId;
         try {
           const msgs = await getSessionMessages(savedId);
           if (Array.isArray(msgs)) {
@@ -74,9 +83,10 @@ export function useSessions(authReady: boolean) {
               content: m.content,
               model: m.model,
             })));
+            console.log(`[useSessions] Restored ${msgs.length} messages for session ${savedId}`);
           }
         } catch (err) {
-          console.error('Failed to restore session messages:', err);
+          console.error('[useSessions] Failed to restore session messages:', err);
         }
       }
       setInitialized(true);
@@ -86,7 +96,9 @@ export function useSessions(authReady: boolean) {
   }, [authReady, initialized, loadSessions]);
 
   const selectSession = useCallback(async (sessionId: string) => {
+    console.log('[useSessions] Selecting session:', sessionId);
     setActiveSessionId(sessionId);
+    activeSessionIdRef.current = sessionId;
     saveSessionId(sessionId);
     try {
       const data = await getSessionMessages(sessionId);
@@ -99,13 +111,15 @@ export function useSessions(authReady: boolean) {
         })));
       }
     } catch (err) {
-      console.error('Failed to load messages:', err);
+      console.error('[useSessions] Failed to load messages:', err);
     }
   }, []);
 
   const newChat = useCallback(() => {
+    console.log('[useSessions] New chat');
     setMessages([]);
     setActiveSessionId(null);
+    activeSessionIdRef.current = null;
     saveSessionId(null);
   }, []);
 
@@ -113,23 +127,33 @@ export function useSessions(authReady: boolean) {
     try {
       await apiDeleteSession(sessionId);
       setSessions(prev => prev.filter(s => s.id !== sessionId));
-      if (activeSessionId === sessionId) {
+      if (activeSessionIdRef.current === sessionId) {
         setActiveSessionId(null);
+        activeSessionIdRef.current = null;
         setMessages([]);
         saveSessionId(null);
       }
     } catch (err) {
-      console.error('Failed to delete session:', err);
+      console.error('[useSessions] Failed to delete session:', err);
     }
-  }, [activeSessionId]);
+  }, []);
 
   const ensureSession = useCallback(async (): Promise<string> => {
-    if (activeSessionId) return activeSessionId;
+    // Use ref to get the latest value, not stale closure
+    const currentId = activeSessionIdRef.current;
+    if (currentId) {
+      console.log('[useSessions] ensureSession: reusing existing session', currentId);
+      return currentId;
+    }
+
+    console.log('[useSessions] ensureSession: creating new session...');
     const newSession = await createSession();
+    console.log('[useSessions] ensureSession: created session', newSession.id);
     setActiveSessionId(newSession.id);
+    activeSessionIdRef.current = newSession.id;
     saveSessionId(newSession.id);
     return newSession.id;
-  }, [activeSessionId]);
+  }, []);
 
   const addMessage = useCallback((msg: Message) => {
     setMessages(prev => [...prev, msg]);

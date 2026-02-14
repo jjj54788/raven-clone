@@ -29,9 +29,11 @@ export default function Home() {
     const aiMsgId = `a-${Date.now()}`;
 
     try {
+      // Step 1: Ensure we have a session
       const sessionId = await ensureSession();
+      console.log('[handleSend] sessionId:', sessionId, 'model:', selectedModel?.id);
 
-      // Add empty AI message for streaming
+      // Step 2: Add empty AI message for streaming
       addMessage({
         id: aiMsgId,
         role: 'assistant',
@@ -43,6 +45,7 @@ export default function Home() {
 
       let fullContent = '';
 
+      // Step 3: Stream chat
       await sendStreamChat(
         message,
         selectedModel?.id,
@@ -54,21 +57,27 @@ export default function Home() {
         },
         // onDone
         () => {
+          console.log('[handleSend] Stream done, refreshing sessions');
           setStreamingMessageId(null);
           setLoading(false);
+          // Refresh the session list to show the new/updated session
           loadSessions();
         },
         // onError
         (error: string) => {
+          console.error('[handleSend] Stream error:', error);
           updateMessage(aiMsgId, {
             content: fullContent || `**Error:** ${error}\n\nPlease ensure the backend is running (http://localhost:3001)`,
           });
           setStreamingMessageId(null);
           setLoading(false);
+          // Still try to refresh sessions in case the session was created
+          loadSessions();
         },
       );
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      console.error('[handleSend] Exception:', errorMessage);
       updateMessage(aiMsgId, {
         content: `**Error:** ${errorMessage}\n\nPlease ensure the backend is running (http://localhost:3001)`,
       });
