@@ -1,12 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import Sidebar from '@/components/Sidebar';
 import ChatHistory from '@/components/ChatHistory';
 import ChatArea from '@/components/ChatArea';
 import WelcomeScreen from '@/components/WelcomeScreen';
 import { useAuth, useModels, useSessions } from '@/hooks';
-import { sendStreamChat } from '@/lib/api';
+import { sendStreamChat, createSession } from '@/lib/api';
 
 export default function Home() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -14,12 +14,31 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
 
+  // Use a ref to track the current session ID reliably across renders
+  const currentSessionIdRef = useRef<string | null>(null);
+
   const { userName, authReady } = useAuth();
   const { models, selectedModel, setSelectedModel } = useModels(authReady);
   const {
     sessions, activeSessionId, messages,
-    loadSessions, selectSession, newChat, removeSession, ensureSession, addMessage, updateMessage,
+    loadSessions, selectSession, newChat: hookNewChat, removeSession,
+    addMessage, updateMessage, setActiveSessionId,
   } = useSessions(authReady);
+
+  // Keep ref in sync with hook state
+  if (activeSessionId !== undefined) {
+    currentSessionIdRef.current = activeSessionId;
+  }
+
+  const handleNewChat = () => {
+    hookNewChat();
+    currentSessionIdRef.current = null;
+  };
+
+  const handleSelectSession = async (sessionId: string) => {
+    await selectSession(sessionId);
+    currentSessionIdRef.current = sessionId;
+  };
 
   const handleSend = async (message: string) => {
     const userMsg = { id: `u-${Date.now()}`, role: 'user' as const, content: message };
@@ -29,9 +48,19 @@ export default function Home() {
     const aiMsgId = `a-${Date.now()}`;
 
     try {
-      // Step 1: Ensure we have a session
-      const sessionId = await ensureSession();
-      console.log('[handleSend] sessionId:', sessionId, 'model:', selectedModel?.id);
+      // Step 1: Ensure we have a session — use ref for latest value
+      let sessionId = currentSessionIdRef.current;
+
+      if (!sessionId) {
+        console.log('[handleSend] No session, creating one...');
+        const newSession = await createSession();
+        sessionId = newSession.id;
+        currentSessionIdRef.current = sessionId;
+        setActiveSessionId(sessionId);
+        console.log('[handleSend] Created session:', sessionId);
+      }
+
+      console.log('[handleSend] Using sessionId:', sessionId, 'model:', selectedModel?.id);
 
       // Step 2: Add empty AI message for streaming
       addMessage({
@@ -60,7 +89,6 @@ export default function Home() {
           console.log('[handleSend] Stream done, refreshing sessions');
           setStreamingMessageId(null);
           setLoading(false);
-          // Refresh the session list to show the new/updated session
           loadSessions();
         },
         // onError
@@ -71,7 +99,6 @@ export default function Home() {
           });
           setStreamingMessageId(null);
           setLoading(false);
-          // Still try to refresh sessions in case the session was created
           loadSessions();
         },
       );
@@ -110,8 +137,8 @@ export default function Home() {
         onClose={() => setHistoryVisible(false)}
         sessions={sessions}
         activeSessionId={activeSessionId}
-        onSelectSession={selectSession}
-        onNewChat={newChat}
+        onSelectSession={handleSelectSession}
+        onNewChat={handleNewChat}
         onDeleteSession={removeSession}
       />
 
