@@ -1,6 +1,7 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import OpenAI from 'openai';
 import { PrismaService } from '../prisma/prisma.service';
+import { Response } from 'express';
 
 export interface ModelConfig {
   id: string;
@@ -101,6 +102,60 @@ export class AiService implements OnModuleInit {
       max_tokens: 2048,
     });
     return response.choices[0]?.message?.content || 'No response';
+  }
+
+  /**
+   * Stream chat response via SSE
+   */
+  async chatStream(
+    model: ModelConfig,
+    messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
+    res: Response,
+  ): Promise<string> {
+    // Set SSE headers
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+
+    let fullContent = '';
+
+    if (model.client === 'gemini') {
+      // Gemini doesn't support streaming via OpenAI SDK, fall back to non-stream
+      fullContent = await this.callGemini(model.modelId, messages);
+      res.write(`data: ${JSON.stringify({ content: fullContent, done: false })}\n\n`);
+      res.write(`data: ${JSON.stringify({ content: '', done: true })}\n\n`);
+      res.end();
+      return fullContent;
+    }
+
+    try {
+      const stream = await model.client.chat.completions.create({
+        model: model.modelId,
+        messages,
+        temperature: 0.7,
+        max_tokens: 4096,
+        stream: true,
+      });
+
+      for await (const chunk of stream) {
+        const delta = chunk.choices[0]?.delta?.content || '';
+        if (delta) {
+          fullContent += delta;
+          res.write(`data: ${JSON.stringify({ content: delta, done: false })}\n\n`);
+        }
+      }
+
+      res.write(`data: ${JSON.stringify({ content: '', done: true })}\n\n`);
+      res.end();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      res.write(`data: ${JSON.stringify({ error: message, done: true })}\n\n`);
+      res.end();
+    }
+
+    return fullContent;
   }
 
   async loadSessionHistory(sessionId: string): Promise<Array<{ role: 'user' | 'assistant'; content: string }>> {

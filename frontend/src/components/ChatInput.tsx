@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import {
-  Globe, BookOpen, Wrench, ArrowUp, ChevronDown, Sparkles,
+  Globe, BookOpen, Wrench, ArrowUp, ChevronDown,
 } from 'lucide-react';
 
 interface AIModel {
@@ -19,12 +19,21 @@ interface ChatInputProps {
   onSelectModel: (model: AIModel) => void;
 }
 
+function getProviderIcon(provider: string): string {
+  switch (provider) {
+    case 'OpenAI': return '🟢';
+    case 'DeepSeek': return '🔵';
+    case 'Google': return '💎';
+    default: return '🟣';
+  }
+}
+
 function getProviderColor(provider: string): string {
   switch (provider) {
-    case 'OpenAI': return 'text-green-500';
-    case 'DeepSeek': return 'text-blue-500';
-    case 'Google': return 'text-yellow-500';
-    default: return 'text-gray-500';
+    case 'OpenAI': return 'text-green-600';
+    case 'DeepSeek': return 'text-blue-600';
+    case 'Google': return 'text-yellow-600';
+    default: return 'text-purple-600';
   }
 }
 
@@ -71,41 +80,54 @@ export default function ChatInput({ onSend, loading, selectedModel, models, onSe
         />
         <div className="flex items-center justify-between border-t border-gray-100 px-3 py-2">
           <div className="flex items-center gap-1">
+            {/* Model Selector */}
             <div className="relative" ref={menuRef}>
               <button
                 onClick={() => setShowModelMenu(!showModelMenu)}
                 className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-gray-600 hover:bg-gray-50 transition-colors"
               >
-                <Sparkles size={14} className={selectedModel ? getProviderColor(selectedModel.provider) : 'text-gray-400'} />
-                <span>{selectedModel ? `${selectedModel.provider} (${selectedModel.name})` : 'No model'}</span>
+                <span className="text-sm">{selectedModel ? getProviderIcon(selectedModel.provider) : '🟣'}</span>
+                <span className="font-medium">
+                  {selectedModel ? `${selectedModel.name}` : 'No model'}
+                </span>
                 <ChevronDown size={12} className={`text-gray-400 transition-transform ${showModelMenu ? 'rotate-180' : ''}`} />
               </button>
               {showModelMenu && (
-                <div className="absolute bottom-full left-0 mb-2 w-64 rounded-xl border border-gray-200 bg-white py-1 shadow-lg z-50">
-                  <p className="px-3 py-1.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Available Models</p>
+                <div className="absolute bottom-full left-0 mb-2 w-72 rounded-xl border border-gray-200 bg-white py-1 shadow-lg z-50">
+                  <p className="px-3 py-1.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
+                    Chat Models
+                  </p>
                   {models.length === 0 ? (
-                    <p className="px-3 py-3 text-xs text-gray-400 text-center">No models configured.</p>
+                    <p className="px-3 py-3 text-xs text-gray-400 text-center">
+                      No models configured. Add API keys to backend/.env
+                    </p>
                   ) : (
                     models.map((m) => (
                       <button
                         key={m.id}
                         onClick={() => { onSelectModel(m); setShowModelMenu(false); }}
-                        className={`flex w-full items-center gap-3 px-3 py-2 text-left text-sm transition-colors ${
-                          selectedModel?.id === m.id ? 'bg-purple-50 text-purple-700' : 'text-gray-700 hover:bg-gray-50'
+                        className={`flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm transition-colors ${
+                          selectedModel?.id === m.id ? 'bg-purple-50' : 'hover:bg-gray-50'
                         }`}
                       >
-                        <Sparkles size={14} className={getProviderColor(m.provider)} />
+                        <span className="text-base">{getProviderIcon(m.provider)}</span>
                         <div className="flex-1 min-w-0">
-                          <p className="font-medium truncate">{m.name}</p>
+                          <p className={`font-medium truncate ${selectedModel?.id === m.id ? 'text-purple-700' : 'text-gray-800'}`}>
+                            {m.name}
+                          </p>
                           <p className="text-[11px] text-gray-400">{m.provider}</p>
                         </div>
-                        {selectedModel?.id === m.id && <span className="text-purple-500 text-xs font-bold">✓</span>}
+                        {selectedModel?.id === m.id && (
+                          <span className="text-purple-500 text-sm">✓</span>
+                        )}
                       </button>
                     ))
                   )}
                 </div>
               )}
             </div>
+
+            {/* Web Search */}
             <button
               onClick={() => setWebSearch(!webSearch)}
               className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs transition-colors ${
@@ -115,15 +137,21 @@ export default function ChatInput({ onSend, loading, selectedModel, models, onSe
               <Globe size={14} />
               <span>Web Search</span>
             </button>
+
+            {/* Knowledge */}
             <button className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-gray-500 hover:bg-gray-50 transition-colors">
               <BookOpen size={14} />
               <span>Knowledge</span>
               <ChevronDown size={12} className="text-gray-400" />
             </button>
+
+            {/* Tools */}
             <button className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-50 hover:text-gray-600 transition-colors">
               <Wrench size={14} />
             </button>
           </div>
+
+          {/* Send */}
           <button
             onClick={handleSend}
             disabled={!input.trim() || loading}
@@ -133,7 +161,9 @@ export default function ChatInput({ onSend, loading, selectedModel, models, onSe
           </button>
         </div>
       </div>
-      <p className="mt-2 text-center text-xs text-gray-400">Press Enter to send, Shift+Enter for new line</p>
+      <p className="mt-2 text-center text-xs text-gray-400">
+        Press Enter to send, Shift+Enter for new line
+      </p>
     </div>
   );
 }

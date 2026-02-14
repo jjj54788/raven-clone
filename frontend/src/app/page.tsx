@@ -6,18 +6,19 @@ import ChatHistory from '@/components/ChatHistory';
 import ChatArea from '@/components/ChatArea';
 import WelcomeScreen from '@/components/WelcomeScreen';
 import { useAuth, useModels, useSessions } from '@/hooks';
-import { sendChat } from '@/lib/api';
+import { sendStreamChat } from '@/lib/api';
 
 export default function Home() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [historyVisible, setHistoryVisible] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
 
   const { userName, authReady } = useAuth();
   const { models, selectedModel, setSelectedModel } = useModels(authReady);
   const {
     sessions, activeSessionId, messages,
-    loadSessions, selectSession, newChat, removeSession, ensureSession, addMessage,
+    loadSessions, selectSession, newChat, removeSession, ensureSession, addMessage, updateMessage,
   } = useSessions(authReady);
 
   const handleSend = async (message: string) => {
@@ -25,25 +26,53 @@ export default function Home() {
     addMessage(userMsg);
     setLoading(true);
 
+    const aiMsgId = `a-${Date.now()}`;
+
     try {
       const sessionId = await ensureSession();
-      const data = await sendChat(message, selectedModel?.id, sessionId);
 
+      // Add empty AI message for streaming
       addMessage({
-        id: `a-${Date.now()}`,
+        id: aiMsgId,
         role: 'assistant',
-        content: data.content || 'No response from AI',
+        content: '',
+        model: selectedModel?.name,
+        provider: selectedModel?.provider,
       });
+      setStreamingMessageId(aiMsgId);
 
-      loadSessions();
+      let fullContent = '';
+
+      await sendStreamChat(
+        message,
+        selectedModel?.id,
+        sessionId,
+        // onChunk
+        (chunk: string) => {
+          fullContent += chunk;
+          updateMessage(aiMsgId, { content: fullContent });
+        },
+        // onDone
+        () => {
+          setStreamingMessageId(null);
+          setLoading(false);
+          loadSessions();
+        },
+        // onError
+        (error: string) => {
+          updateMessage(aiMsgId, {
+            content: fullContent || `**Error:** ${error}\n\nPlease ensure the backend is running (http://localhost:3001)`,
+          });
+          setStreamingMessageId(null);
+          setLoading(false);
+        },
+      );
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      addMessage({
-        id: `e-${Date.now()}`,
-        role: 'assistant',
+      updateMessage(aiMsgId, {
         content: `**Error:** ${errorMessage}\n\nPlease ensure the backend is running (http://localhost:3001)`,
       });
-    } finally {
+      setStreamingMessageId(null);
       setLoading(false);
     }
   };
@@ -82,6 +111,7 @@ export default function Home() {
           <ChatArea
             messages={messages}
             loading={loading}
+            streamingMessageId={streamingMessageId}
             onSend={handleSend}
             selectedModel={selectedModel}
             models={models}

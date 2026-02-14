@@ -81,6 +81,78 @@ export async function sendChat(message: string, model?: string, sessionId?: stri
   });
 }
 
+/**
+ * SSE streaming chat - calls onChunk for each piece of content
+ */
+export async function sendStreamChat(
+  message: string,
+  model: string | undefined,
+  sessionId: string | undefined,
+  onChunk: (content: string) => void,
+  onDone: () => void,
+  onError: (error: string) => void,
+): Promise<void> {
+  const token = getToken();
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  try {
+    const res = await fetch(`${API_BASE}/ai/stream-chat`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ message, model, sessionId }),
+    });
+
+    if (!res.ok) {
+      onError(`HTTP ${res.status}`);
+      return;
+    }
+
+    const reader = res.body?.getReader();
+    if (!reader) {
+      onError('No response body');
+      return;
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data.error) {
+              onError(data.error);
+              return;
+            }
+            if (data.done) {
+              onDone();
+              return;
+            }
+            if (data.content) {
+              onChunk(data.content);
+            }
+          } catch {
+            // skip malformed JSON
+          }
+        }
+      }
+    }
+
+    onDone();
+  } catch (err: any) {
+    onError(err.message || 'Network error');
+  }
+}
+
 // ---- Sessions ----
 export async function getSessions() {
   return apiFetch('/ask/sessions');

@@ -19,6 +19,8 @@ export interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  model?: string;
+  provider?: string;
 }
 
 export function useSessions(authReady: boolean) {
@@ -49,6 +51,7 @@ export function useSessions(authReady: boolean) {
           id: m.id,
           role: m.role,
           content: m.content,
+          model: m.model,
         })));
       }
     } catch (err) {
@@ -85,6 +88,12 @@ export function useSessions(authReady: boolean) {
     setMessages(prev => [...prev, msg]);
   }, []);
 
+  const updateMessage = useCallback((id: string, update: Partial<Message>) => {
+    setMessages(prev =>
+      prev.map(m => (m.id === id ? { ...m, ...update } : m))
+    );
+  }, []);
+
   return {
     sessions,
     activeSessionId,
@@ -95,5 +104,6 @@ export function useSessions(authReady: boolean) {
     removeSession,
     ensureSession,
     addMessage,
+    updateMessage,
   };
 }
