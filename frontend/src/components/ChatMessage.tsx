@@ -1,7 +1,7 @@
 'use client';
 
 import ReactMarkdown from 'react-markdown';
-import { User, Bot } from 'lucide-react';
+import { User } from 'lucide-react';
 
 interface ChatMessageProps {
   role: 'user' | 'assistant';
@@ -9,38 +9,28 @@ interface ChatMessageProps {
 }
 
 export default function ChatMessage({ role, content }: ChatMessageProps) {
-  const isUser = role === 'user';
+  if (role === 'user') {
+    return (
+      <div className="flex justify-end gap-3">
+        <div className="max-w-[70%] rounded-2xl bg-purple-600 px-4 py-3 text-white">
+          <p className="text-sm whitespace-pre-wrap">{content}</p>
+        </div>
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-purple-100">
+          <User size={16} className="text-purple-600" />
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className={`flex gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
-      {/* 头像 */}
-      <div
-        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
-          isUser ? 'bg-blue-600' : 'bg-gradient-to-br from-purple-500 to-blue-500'
-        }`}
-      >
-        {isUser ? (
-          <User size={16} className="text-white" />
-        ) : (
-          <Bot size={16} className="text-white" />
-        )}
+    <div className="flex gap-3">
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-purple-500 to-blue-500">
+        <span className="text-xs text-white font-bold">AI</span>
       </div>
-
-      {/* 消息内容 */}
-      <div
-        className={`max-w-[75%] rounded-2xl px-4 py-3 ${
-          isUser
-            ? 'bg-purple-600 text-white'
-            : 'bg-white text-gray-800 shadow-sm border border-gray-100'
-        }`}
-      >
-        {isUser ? (
-          <p className="whitespace-pre-wrap text-sm">{content}</p>
-        ) : (
-          <div className="prose prose-sm max-w-none">
-            <ReactMarkdown>{content}</ReactMarkdown>
-          </div>
-        )}
+      <div className="max-w-[80%] rounded-2xl bg-white px-4 py-3 shadow-sm border border-gray-100">
+        <div className="prose prose-sm max-w-none text-gray-800">
+          <ReactMarkdown>{content}</ReactMarkdown>
+        </div>
       </div>
     </div>
   );

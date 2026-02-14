@@ -3,7 +3,7 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: 'Raven AI Engine - AI-Powered Research Platform',
-  description: 'Raven AI Engine Clone',
+  description: 'AI-Powered Research Platform',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

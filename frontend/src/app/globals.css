@@ -16,7 +16,6 @@ body {
   background-color: var(--color-bg);
 }
 
-/* 自定义滚动条 */
 ::-webkit-scrollbar {
   width: 6px;
 }
@@ -31,7 +30,6 @@ body {
   background: #9CA3AF;
 }
 
-/* Markdown 内容样式 */
 .prose pre {
   background: #1F2937;
   border-radius: 8px;

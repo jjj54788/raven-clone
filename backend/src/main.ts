@@ -1,133 +1,49 @@
 // ============================================================
-// Phase 2: 最小后端 - 只有一个聊天接口
-// 无数据库、无认证，纯粹跑通 AI 调用链路
+// Phase 3: Full Backend - Auth + AI + Ask (Sessions)
 // ============================================================
 
-import { Controller, Get, Post, Body, Module } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
-import OpenAI from 'openai';
+import { AuthController } from './modules/auth/auth.controller';
+import { AiController, registerModels, modelRegistry } from './modules/ai/ai.controller';
+import { AskController } from './modules/ask/ask.controller';
 
-// --- 自动检测可用的 AI Provider ---
-let client: OpenAI | null = null;
-let model = '';
-let provider = '';
-
-if (process.env.OPENAI_API_KEY) {
-  client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  model = 'gpt-4.1-mini';
-  provider = 'OpenAI';
-} else if (process.env.DEEPSEEK_API_KEY) {
-  client = new OpenAI({
-    apiKey: process.env.DEEPSEEK_API_KEY,
-    baseURL: 'https://api.deepseek.com/v1',
-  });
-  model = 'deepseek-chat';
-  provider = 'DeepSeek';
-}
-
-@Controller('api/v1')
-class AppController {
-  @Get('health')
-  getHealth() {
-    return { status: 'ok', provider: provider || 'none', model };
-  }
-
-  @Post('ai/simple-chat')
-  async simpleChat(
-    @Body()
-    body: {
-      message: string;
-      messages?: Array<{ role: string; content: string }>;
-    },
-  ) {
-    if (!client && !process.env.GOOGLE_AI_API_KEY) {
-      return { content: 'Error: No AI API Key configured. Add OPENAI_API_KEY, DEEPSEEK_API_KEY, or GOOGLE_AI_API_KEY to .env', model: 'none', provider: 'none' };
-    }
-
-    const msgs: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
-      { role: 'system', content: 'You are Raven AI, a helpful assistant. Reply in the same language as the user.' },
-    ];
-
-    if (body.messages) {
-      for (const m of body.messages) {
-        msgs.push({ role: m.role as any, content: m.content });
-      }
-    }
-    msgs.push({ role: 'user', content: body.message });
-
-    // Gemini 走 REST API
-    if (process.env.GOOGLE_AI_API_KEY && !client) {
-      const geminiModel = 'gemini-2.5-flash';
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${process.env.GOOGLE_AI_API_KEY}`;
-      const contents = msgs.filter(m => m.role !== 'system').map(m => ({
-        role: m.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: m.content }],
-      }));
-      const sysMsg = msgs.find(m => m.role === 'system');
-      const reqBody: any = { contents };
-      if (sysMsg) reqBody.systemInstruction = { parts: [{ text: sysMsg.content }] };
-
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(reqBody),
-      });
-      const data = await res.json();
-      return {
-        content: data.candidates?.[0]?.content?.parts?.[0]?.text || 'No response',
-        model: geminiModel,
-        provider: 'Google',
-      };
-    }
-
-    // OpenAI / DeepSeek
-    const response = await client!.chat.completions.create({
-      model,
-      messages: msgs,
-      temperature: 0.7,
-      max_tokens: 2048,
-    });
-
-    return {
-      content: response.choices[0]?.message?.content || 'No response',
-      model,
-      provider,
-    };
-  }
-}
-
-@Module({ controllers: [AppController] })
+@Module({
+  controllers: [AuthController, AiController, AskController],
+})
 class AppModule {}
 
 async function bootstrap() {
-  // 加载 .env
   require('dotenv').config();
-
-  // 重新检测 (dotenv 加载后)
-  if (!client && !provider) {
-    if (process.env.OPENAI_API_KEY) {
-      client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-      model = 'gpt-4.1-mini';
-      provider = 'OpenAI';
-    } else if (process.env.DEEPSEEK_API_KEY) {
-      client = new OpenAI({
-        apiKey: process.env.DEEPSEEK_API_KEY,
-        baseURL: 'https://api.deepseek.com/v1',
-      });
-      model = 'deepseek-chat';
-      provider = 'DeepSeek';
-    } else if (process.env.GOOGLE_AI_API_KEY) {
-      provider = 'Google';
-      model = 'gemini-2.5-flash';
-    }
-  }
+  registerModels();
 
   const app = await NestFactory.create(AppModule);
   app.enableCors();
   await app.listen(3001);
+
   console.log('');
-  console.log('🚀 Phase 2 Backend running on http://localhost:3001');
-  console.log(`🤖 AI Provider: ${provider || 'NONE - add API key to .env!'} (${model})`);
+  console.log('🚀 Phase 3 Backend running on http://localhost:3001');
+  console.log('📦 Database: PostgreSQL via Prisma');
+  console.log('🔐 Auth: JWT (register/login/me)');
+  if (modelRegistry.length === 0) {
+    console.log('⚠️  No AI models configured! Add API keys to backend/.env');
+  } else {
+    console.log(`🤖 Available models (${modelRegistry.length}):`);
+    for (const m of modelRegistry) {
+      console.log(`   - ${m.name} (${m.provider}) → ${m.id}`);
+    }
+  }
+  console.log('');
+  console.log('API Endpoints:');
+  console.log('  POST /api/v1/auth/register  { email, name, password }');
+  console.log('  POST /api/v1/auth/login     { email, password }');
+  console.log('  GET  /api/v1/auth/me        [Bearer token]');
+  console.log('  GET  /api/v1/ai/models');
+  console.log('  POST /api/v1/ai/simple-chat { message, model?, sessionId? }');
+  console.log('  GET  /api/v1/ask/sessions   [Bearer token]');
+  console.log('  POST /api/v1/ask/sessions   [Bearer token]');
+  console.log('  GET  /api/v1/ask/sessions/:id/messages');
+  console.log('  DELETE /api/v1/ask/sessions/:id');
   console.log('');
 }
 bootstrap();
