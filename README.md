@@ -1,29 +1,61 @@
-# Raven AI Engine - Phase 3
+# Raven AI Engine Clone
 
-## 新增功能
-- PostgreSQL 数据库（Docker）
-- 用户注册/登录（JWT 认证）
-- 聊天会话管理（创建/删除/切换）
-- 消息历史保存到数据库
-- 多 AI 模型切换
+A full-stack clone of [Raven AI Engine](https://raven-ai-engine.up.railway.app/ai-ask), built with NestJS + Next.js.
 
-## 快速启动（4 步）
+## Tech Stack
 
-### 第 1 步：启动 PostgreSQL 数据库
+| Layer | Technology |
+|-------|-----------|
+| **Backend** | NestJS, Prisma ORM, PostgreSQL, JWT |
+| **Frontend** | Next.js 15, React 19, TailwindCSS v4 |
+| **AI** | DeepSeek, OpenAI, Google Gemini (multi-provider) |
+| **Database** | PostgreSQL 17 (Docker) |
 
-```powershell
-docker run --name raven-postgres -e POSTGRES_PASSWORD=admin123 -e POSTGRES_DB=raven_ai -p 5432:5432 -d postgres
+## Project Structure
+
+```
+raven-clone/
+├── backend/
+│   ├── prisma/              # Database schema & migrations
+│   ├── src/
+│   │   ├── common/          # Guards, decorators, filters
+│   │   │   ├── guards/      # JwtAuthGuard
+│   │   │   ├── decorators/  # @CurrentUser
+│   │   │   └── filters/     # GlobalExceptionFilter
+│   │   ├── modules/
+│   │   │   ├── prisma/      # Database service (global)
+│   │   │   ├── auth/        # Authentication (register/login/JWT)
+│   │   │   ├── ai/          # AI models & chat
+│   │   │   └── ask/         # Session management
+│   │   ├── app.module.ts    # Root module
+│   │   └── main.ts          # Entry point
+│   └── .env.example
+├── frontend/
+│   ├── src/
+│   │   ├── app/             # Next.js pages
+│   │   ├── components/      # React components
+│   │   ├── hooks/           # Custom React hooks
+│   │   └── lib/             # API client
+│   └── package.json
+├── docker-compose.yml       # PostgreSQL one-click setup
+└── .prettierrc              # Code formatting
 ```
 
-### 第 2 步：启动后端
+## Quick Start (4 Steps)
+
+### Step 1: Start PostgreSQL
+
+```powershell
+docker compose up -d
+```
+
+### Step 2: Start Backend
 
 ```powershell
 cd backend
 
-# 创建 .env 文件（用 VS Code 或记事本手动创建，内容如下）：
-# DATABASE_URL="postgresql://postgres:admin123@localhost:5432/raven_ai?schema=public"
-# JWT_SECRET=raven-super-secret-key
-# DEEPSEEK_API_KEY=sk-你的key
+# Create .env from example (then fill in your API keys)
+copy .env.example .env
 
 pnpm install
 npx prisma generate
@@ -32,7 +64,7 @@ pnpm prisma:seed
 pnpm start:dev
 ```
 
-### 第 3 步：启动前端（新终端）
+### Step 3: Start Frontend (new terminal)
 
 ```powershell
 cd frontend
@@ -40,8 +72,31 @@ pnpm install
 pnpm dev
 ```
 
-### 第 4 步：打开浏览器
+### Step 4: Open Browser
 
-访问 http://localhost:3000
+Visit http://localhost:3000
 
-默认账户：admin@raven.local / admin123
+Default account: `admin@raven.local` / `admin123`
+
+## Features
+
+- Multi-model AI chat (DeepSeek V3, DeepSeek R1, GPT, Gemini)
+- User registration & login (JWT)
+- Chat session management (create, switch, delete)
+- Message persistence (survives page refresh)
+- Auto-naming sessions based on first message
+- Responsive UI matching original Raven design
+
+## API Endpoints
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | `/api/v1/auth/register` | No | Register new user |
+| POST | `/api/v1/auth/login` | No | Login |
+| GET | `/api/v1/auth/me` | Yes | Get current user |
+| GET | `/api/v1/ai/models` | No | List available AI models |
+| POST | `/api/v1/ai/simple-chat` | No | Send chat message |
+| GET | `/api/v1/ask/sessions` | Yes | List user sessions |
+| POST | `/api/v1/ask/sessions` | Yes | Create new session |
+| GET | `/api/v1/ask/sessions/:id/messages` | Yes | Get session messages |
+| DELETE | `/api/v1/ask/sessions/:id` | Yes | Delete session |

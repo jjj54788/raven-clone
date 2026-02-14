@@ -1,38 +1,19 @@
-// ============================================================
-// Phase 3: Full Backend - Auth + AI + Ask (Sessions)
-// ============================================================
-
-import { Module } from '@nestjs/common';
+import 'dotenv/config';
+import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
-import { AuthController } from './modules/auth/auth.controller';
-import { AiController, registerModels, modelRegistry } from './modules/ai/ai.controller';
-import { AskController } from './modules/ask/ask.controller';
-
-@Module({
-  controllers: [AuthController, AiController, AskController],
-})
-class AppModule {}
+import { AppModule } from './app.module';
+import { GlobalExceptionFilter } from './common/filters/http-exception.filter';
 
 async function bootstrap() {
-  require('dotenv').config();
-  registerModels();
-
   const app = await NestFactory.create(AppModule);
   app.enableCors();
-  await app.listen(3001);
+  app.useGlobalFilters(new GlobalExceptionFilter());
+
+  const port = process.env.PORT || 3001;
+  await app.listen(port);
 
   console.log('');
-  console.log('🚀 Phase 3 Backend running on http://localhost:3001');
-  console.log('📦 Database: PostgreSQL via Prisma');
-  console.log('🔐 Auth: JWT (register/login/me)');
-  if (modelRegistry.length === 0) {
-    console.log('⚠️  No AI models configured! Add API keys to backend/.env');
-  } else {
-    console.log(`🤖 Available models (${modelRegistry.length}):`);
-    for (const m of modelRegistry) {
-      console.log(`   - ${m.name} (${m.provider}) → ${m.id}`);
-    }
-  }
+  console.log(`Raven Backend running on http://localhost:${port}`);
   console.log('');
   console.log('API Endpoints:');
   console.log('  POST /api/v1/auth/register  { email, name, password }');
@@ -46,4 +27,5 @@ async function bootstrap() {
   console.log('  DELETE /api/v1/ask/sessions/:id');
   console.log('');
 }
+
 bootstrap();
