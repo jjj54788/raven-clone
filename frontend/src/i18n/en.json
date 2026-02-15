@@ -67,6 +67,9 @@
   "login.noAccount": "Don't have an account?",
   "login.hasAccount": "Already have an account?",
   "login.defaultHint": "Default: admin@raven.local / admin123",
+  "login.googleSignIn": "Sign in with Google",
+  "login.orDivider": "or",
+  "login.googleError": "Google sign-in failed. Please try again.",
   "login.error": "Something went wrong",
 
   "notFound.title": "404",

@@ -67,6 +67,9 @@
   "login.noAccount": "还没有账户？",
   "login.hasAccount": "已有账户？",
   "login.defaultHint": "默认账号：admin@raven.local / admin123",
+  "login.googleSignIn": "使用 Google 登录",
+  "login.orDivider": "或",
+  "login.googleError": "Google 登录失败，请重试。",
   "login.error": "出了点问题",
 
   "notFound.title": "404",

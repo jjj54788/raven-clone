@@ -2,6 +2,7 @@ import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/
 import * as bcrypt from 'bcryptjs';
 import * as jwt from 'jsonwebtoken';
 import { PrismaService } from '../prisma/prisma.service';
+import { verifyFirebaseToken } from '../../utils/firebase-admin';
 
 @Injectable()
 export class AuthService {
@@ -56,6 +57,10 @@ export class AuthService {
       throw new UnauthorizedException('Invalid email or password');
     }
 
+    if (!user.password) {
+      throw new UnauthorizedException('This account uses Google Sign-In. Please sign in with Google.');
+    }
+
     const valid = await bcrypt.compare(password, user.password);
     if (!valid) {
       throw new UnauthorizedException('Invalid email or password');
@@ -68,11 +73,46 @@ export class AuthService {
     };
   }
 
+  async googleLogin(firebaseToken: string) {
+    const decoded = await verifyFirebaseToken(firebaseToken);
+    if (!decoded) {
+      throw new UnauthorizedException('Invalid Google token');
+    }
+
+    let user = await this.prisma.user.findUnique({ where: { email: decoded.email } });
+
+    if (!user) {
+      user = await this.prisma.user.create({
+        data: {
+          email: decoded.email,
+          name: decoded.name,
+          password: null,
+          provider: 'google',
+          avatarUrl: decoded.picture || null,
+        },
+      });
+    } else if (user.provider === 'local') {
+      user = await this.prisma.user.update({
+        where: { id: user.id },
+        data: {
+          provider: 'google',
+          avatarUrl: decoded.picture || user.avatarUrl,
+        },
+      });
+    }
+
+    const tokens = this.generateTokens(user.id);
+    return {
+      user: { id: user.id, email: user.email, name: user.name, credits: user.credits, avatarUrl: user.avatarUrl },
+      ...tokens,
+    };
+  }
+
   async getProfile(userId: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) {
       throw new UnauthorizedException('User not found');
     }
-    return { id: user.id, email: user.email, name: user.name, credits: user.credits };
+    return { id: user.id, email: user.email, name: user.name, credits: user.credits, avatarUrl: user.avatarUrl };
   }
 }

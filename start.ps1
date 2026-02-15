@@ -61,7 +61,7 @@ Write-Host ""
 
 # Step 5: Start Backend
 Write-Host "[5/6] Starting Backend (port 3001)..." -ForegroundColor Yellow
-Start-Process cmd -ArgumentList '/k', "cd /d $ProjectRoot\backend && pnpm install && pnpm start:dev" -WindowStyle Normal
+Start-Process cmd -ArgumentList '/k', "cd /d $ProjectRoot\backend && pnpm install && pnpm prisma generate && pnpm prisma db push && pnpm start:dev" -WindowStyle Normal
 Write-Host ""
 
 # Step 6: Start Frontend

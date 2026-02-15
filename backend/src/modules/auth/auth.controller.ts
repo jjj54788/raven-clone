@@ -17,6 +17,11 @@ export class AuthController {
     return this.authService.login(body.email, body.password);
   }
 
+  @Post('google')
+  async googleLogin(@Body() body: { idToken: string }) {
+    return this.authService.googleLogin(body.idToken);
+  }
+
   @Get('me')
   @UseGuards(JwtAuthGuard)
   async me(@CurrentUser() userId: string) {

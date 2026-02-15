@@ -53,6 +53,18 @@ export async function login(email: string, password: string) {
   return data;
 }
 
+export async function googleLogin(idToken: string) {
+  const data = await apiFetch('/auth/google', {
+    method: 'POST',
+    body: JSON.stringify({ idToken }),
+  });
+  if (data.accessToken) {
+    setToken(data.accessToken);
+    setUser(data.user);
+  }
+  return data;
+}
+
 export async function register(email: string, name: string, password: string) {
   const data = await apiFetch('/auth/register', {
     method: 'POST',
