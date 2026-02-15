@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import {
   Settings, Search, BookOpen, Eye, FlaskConical,
   FileText, Users, Target, LayoutGrid, PenTool,
@@ -9,6 +10,9 @@ import {
 } from 'lucide-react';
 import { clearToken } from '@/lib/api';
 import { useLanguage } from '@/i18n/LanguageContext';
+import { APP_VERSION } from '@/lib/version';
+import { getUnreadCount, subscribeNotificationsChanged } from '@/lib/notifications';
+import DailyCheckInReminder from '@/components/DailyCheckInReminder';
 
 interface SidebarProps {
   collapsed: boolean;
@@ -19,11 +23,19 @@ interface SidebarProps {
 
 export default function Sidebar({ collapsed, onToggle, onShowHistory, userName }: SidebarProps) {
   const { t, toggleLocale } = useLanguage();
+  const pathname = usePathname();
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    const update = () => setUnreadCount(getUnreadCount());
+    update();
+    return subscribeNotificationsChanged(update);
+  }, []);
 
   const menuSections = [
     {
       titleKey: 'sidebar.aiEngine',
-      items: [{ icon: Settings, labelKey: 'sidebar.aiAsk', href: '/', active: true }],
+      items: [{ icon: Settings, labelKey: 'sidebar.aiAsk', href: '/', active: pathname === '/' }],
     },
     {
       titleKey: 'sidebar.knowledge',
@@ -63,6 +75,8 @@ export default function Sidebar({ collapsed, onToggle, onShowHistory, userName }
     window.location.href = '/login';
   };
 
+  const notificationsActive = pathname === '/notifications' || pathname === '/whats-new';
+
   return (
     <aside
       className={`flex flex-col border-r border-gray-100 bg-white transition-all duration-300 ${
@@ -84,7 +98,7 @@ export default function Sidebar({ collapsed, onToggle, onShowHistory, userName }
           <>
             <span className="text-sm font-semibold text-gray-900">Raven</span>
             <span className="rounded bg-purple-100 px-1.5 py-0.5 text-[10px] font-medium text-purple-700">
-              v3.70.0
+              {APP_VERSION}
             </span>
             <button onClick={onShowHistory} className="ml-auto rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600" title={t('sidebar.chatHistory')}>
               <Monitor size={14} />
@@ -144,11 +158,29 @@ export default function Sidebar({ collapsed, onToggle, onShowHistory, userName }
         ))}
       </nav>
 
+      <DailyCheckInReminder collapsed={collapsed} userName={userName} />
+
       {/* Footer */}
       <div className="border-t border-gray-100 px-2 py-2 space-y-1">
-        <Link href="/coming-soon" className={`flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm text-gray-600 hover:bg-gray-50 ${collapsed ? 'justify-center' : ''}`} title={collapsed ? t('sidebar.notifications') : undefined}>
+        <Link
+          href="/notifications"
+          className={[
+            'relative flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm transition-colors',
+            notificationsActive ? 'bg-purple-50 font-medium text-purple-700' : 'text-gray-600 hover:bg-gray-50',
+            collapsed ? 'justify-center' : '',
+          ].join(' ')}
+          title={collapsed ? t('sidebar.notifications') : undefined}
+        >
           <Bell size={16} />
           {!collapsed && <span>{t('sidebar.notifications')}</span>}
+          {!collapsed && unreadCount > 0 && (
+            <span className="ml-auto rounded-full bg-purple-600 px-2 py-0.5 text-[10px] font-semibold text-white">
+              {unreadCount}
+            </span>
+          )}
+          {collapsed && unreadCount > 0 && (
+            <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-purple-600" />
+          )}
         </Link>
         <div className={`flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm text-gray-600 ${collapsed ? 'justify-center' : ''}`}>
           <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-purple-100 text-xs font-medium text-purple-700">
