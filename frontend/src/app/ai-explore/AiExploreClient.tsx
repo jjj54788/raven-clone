@@ -1,21 +1,42 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
-  Bookmark, BookmarkCheck, FileText, Filter, Landmark, Newspaper, Rss, Search as SearchIcon, Youtube,
+  ArrowUp,
+  Bookmark,
+  BookmarkCheck,
+  FileText,
+  Filter,
+  Landmark,
+  Newspaper,
+  Plus,
+  Rss,
+  Search as SearchIcon,
+  X,
+  Youtube,
 } from 'lucide-react';
 import Sidebar from '@/components/Sidebar';
 import { useAuth } from '@/hooks';
 import { useLanguage } from '@/i18n/LanguageContext';
-import { getUser } from '@/lib/api';
+import { getUser, getYoutubeExplore } from '@/lib/api';
 import {
   ExploreCategory,
   exploreItems,
+  addExploreKeyword,
   getExploreCategoryLabel,
   isExploreCategory,
   loadExploreBookmarks,
+  loadExploreKeywords,
+  removeExploreKeyword,
   subscribeExploreBookmarks,
+  subscribeExploreKeywords,
   toggleExploreBookmark,
 } from '@/lib/ai-explore';
 
@@ -102,9 +123,19 @@ function AiExploreClient() {
   const [tab, setTab] = useState<ExploreCategory>('youtube');
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState<'latest' | 'oldest'>('latest');
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [activeKeywords, setActiveKeywords] = useState<string[]>([]);
+  const [keywords, setKeywords] = useState<string[]>([]);
+  const [keywordInput, setKeywordInput] = useState('');
   const [userId, setUserId] = useState<string | null>(null);
   const [bookmarks, setBookmarks] = useState<string[]>([]);
+  const [youtubeItems, setYoutubeItems] = useState<typeof exploreItems>([]);
+  const [youtubeLoading, setYoutubeLoading] = useState(false);
+  const [youtubeLoadingMore, setYoutubeLoadingMore] = useState(false);
+  const [youtubeError, setYoutubeError] = useState<string | null>(null);
+  const [nextPageToken, setNextPageToken] = useState<string | null>(null);
+  const [showBackTop, setShowBackTop] = useState(false);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!authReady) return;
@@ -116,6 +147,13 @@ function AiExploreClient() {
     const refresh = () => setBookmarks(loadExploreBookmarks(userId));
     refresh();
     return subscribeExploreBookmarks(refresh);
+  }, [authReady, userId]);
+
+  useEffect(() => {
+    if (!authReady) return () => {};
+    const refresh = () => setKeywords(loadExploreKeywords(userId));
+    refresh();
+    return subscribeExploreKeywords(refresh);
   }, [authReady, userId]);
 
   useEffect(() => {
@@ -135,9 +173,19 @@ function AiExploreClient() {
         bookmark: '收藏',
         bookmarked: '已收藏',
         filterLabel: '筛选',
-        filterHint: '关注标签',
+        filterHint: '关注词',
         sortLatest: '最新',
         sortOldest: '最早',
+        keywordPlaceholder: '添加关注词',
+        keywordAdd: '添加',
+        keywordEmpty: '还没有关注词',
+        youtubeLoading: '加载 YouTube 内容中...',
+        youtubeError: 'YouTube 数据暂不可用，请稍后再试',
+        youtubeMore: '加载更多',
+        youtubeNoMore: '没有更多结果了',
+        youtubeLoadingMore: '正在加载更多...',
+        loadedCount: (count: number) => `已加载 ${count} 条`,
+        backToTop: '回到顶部',
       };
     }
     return {
@@ -148,35 +196,165 @@ function AiExploreClient() {
       bookmark: 'Bookmark',
       bookmarked: 'Bookmarked',
       filterLabel: 'Filter',
-      filterHint: 'Focus tags',
+      filterHint: 'Focus keywords',
       sortLatest: 'Latest',
       sortOldest: 'Oldest',
+      keywordPlaceholder: 'Add keyword',
+      keywordAdd: 'Add',
+      keywordEmpty: 'No keywords yet',
+      youtubeLoading: 'Loading YouTube results...',
+      youtubeError: 'YouTube data is unavailable right now',
+      youtubeMore: 'Load more',
+      youtubeNoMore: 'No more results',
+      youtubeLoadingMore: 'Loading more...',
+      loadedCount: (count: number) => `Loaded ${count} items`,
+      backToTop: 'Back to top',
     };
   }, [locale]);
 
-  const availableTags = useMemo(() => {
-    if (tab !== 'youtube') return [];
-    const set = new Set<string>();
-    for (const item of exploreItems) {
-      if (item.category !== 'youtube') continue;
-      if (!isYoutubeUrl(item.url)) continue;
-      for (const tag of item.tags) set.add(tag);
-    }
-    return Array.from(set);
-  }, [tab]);
-
-  const toggleTag = (tag: string) => {
-    setSelectedTags((prev) => {
-      if (prev.includes(tag)) return prev.filter((t) => t !== tag);
-      return [...prev, tag];
+  const toggleKeyword = (keyword: string) => {
+    setActiveKeywords((prev) => {
+      if (prev.includes(keyword)) return prev.filter((item) => item !== keyword);
+      return [...prev, keyword];
     });
   };
 
+  const handleAddKeyword = () => {
+    const value = keywordInput.trim();
+    if (!value) return;
+    const next = addExploreKeyword(userId, value);
+    setKeywords(next);
+    setKeywordInput('');
+    if (!activeKeywords.includes(value)) {
+      setActiveKeywords((prev) => [...prev, value]);
+    }
+  };
+
+  const handleRemoveKeyword = (keyword: string) => {
+    const next = removeExploreKeyword(userId, keyword);
+    setKeywords(next);
+    setActiveKeywords((prev) => prev.filter((item) => item !== keyword));
+  };
+
+  useEffect(() => {
+    if (!authReady || tab !== 'youtube') return () => {};
+    let cancelled = false;
+    const run = async () => {
+      setYoutubeLoading(true);
+      setYoutubeError(null);
+      try {
+        const data = await getYoutubeExplore({
+          q: search.trim() || undefined,
+          keywords: activeKeywords,
+          order: sortBy,
+          maxResults: 12,
+        });
+        if (cancelled) return;
+        const mapped = (data?.items ?? []).map((item) => ({
+          id: item.id,
+          category: 'youtube' as ExploreCategory,
+          title: { en: item.title, zh: item.title },
+          summary: { en: item.description, zh: item.description },
+          source: 'YouTube',
+          url: item.url,
+          publishedAt: item.publishedAt,
+          tags: activeKeywords.length > 0 ? [...activeKeywords] : [],
+          channel: item.channel,
+          thumbnailUrl: item.thumbnailUrl,
+        }));
+        setYoutubeItems(mapped);
+        setNextPageToken(data?.nextPageToken ?? null);
+      } catch (err: any) {
+        if (cancelled) return;
+        setYoutubeError(err?.message || uiText.youtubeError);
+        setYoutubeItems([]);
+        setNextPageToken(null);
+      } finally {
+        if (!cancelled) setYoutubeLoading(false);
+      }
+    };
+    const handle = window.setTimeout(run, 400);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(handle);
+    };
+  }, [authReady, tab, search, activeKeywords, sortBy, uiText.youtubeError]);
+
+  const handleLoadMore = useCallback(async () => {
+    if (youtubeLoading || youtubeLoadingMore || !nextPageToken) return;
+    setYoutubeLoadingMore(true);
+    setYoutubeError(null);
+    try {
+      const data = await getYoutubeExplore({
+        q: search.trim() || undefined,
+        keywords: activeKeywords,
+        order: sortBy,
+        maxResults: 12,
+        pageToken: nextPageToken || undefined,
+      });
+      const mapped = (data?.items ?? []).map((item) => ({
+        id: item.id,
+        category: 'youtube' as ExploreCategory,
+        title: { en: item.title, zh: item.title },
+        summary: { en: item.description, zh: item.description },
+        source: 'YouTube',
+        url: item.url,
+        publishedAt: item.publishedAt,
+        tags: activeKeywords.length > 0 ? [...activeKeywords] : [],
+        channel: item.channel,
+        thumbnailUrl: item.thumbnailUrl,
+      }));
+      setYoutubeItems((prev) => [...prev, ...mapped]);
+      setNextPageToken(data?.nextPageToken ?? null);
+    } catch (err: any) {
+      setYoutubeError(err?.message || uiText.youtubeError);
+    } finally {
+      setYoutubeLoadingMore(false);
+    }
+  }, [activeKeywords, nextPageToken, search, sortBy, uiText.youtubeError, youtubeLoading, youtubeLoadingMore]);
+
+  useEffect(() => {
+    if (tab !== 'youtube') return;
+    const root = scrollRef.current;
+    const target = sentinelRef.current;
+    if (!root || !target) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (entry.isIntersecting) handleLoadMore();
+      },
+      { root, rootMargin: '200px' },
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [handleLoadMore, tab]);
+
+  useEffect(() => {
+    const node = scrollRef.current;
+    if (!node) return;
+    const onScroll = () => setShowBackTop(node.scrollTop > 480);
+    onScroll();
+    node.addEventListener('scroll', onScroll);
+    return () => node.removeEventListener('scroll', onScroll);
+  }, [tab]);
+
+  const handleBackTop = () => {
+    scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   const filtered = useMemo(() => {
+    if (tab === 'youtube') {
+      const sorted = [...youtubeItems].sort((a, b) => {
+        const aTime = new Date(a.publishedAt).getTime();
+        const bTime = new Date(b.publishedAt).getTime();
+        if (!Number.isFinite(aTime) || !Number.isFinite(bTime)) return 0;
+        return sortBy === 'latest' ? bTime - aTime : aTime - bTime;
+      });
+      return sorted;
+    }
     const q = search.trim().toLowerCase();
     let items = exploreItems.filter((item) => {
       if (item.category !== tab) return false;
-      if (item.category === 'youtube' && !isYoutubeUrl(item.url)) return false;
       if (!q) return true;
       const hay = [
         item.title.en,
@@ -189,19 +367,8 @@ function AiExploreClient() {
       return hay.includes(q);
     });
 
-    if (tab === 'youtube' && selectedTags.length > 0) {
-      items = items.filter((item) => selectedTags.every((tag) => item.tags.includes(tag)));
-    }
-
-    items = [...items].sort((a, b) => {
-      const aTime = new Date(a.publishedAt).getTime();
-      const bTime = new Date(b.publishedAt).getTime();
-      if (!Number.isFinite(aTime) || !Number.isFinite(bTime)) return 0;
-      return sortBy === 'latest' ? bTime - aTime : aTime - bTime;
-    });
-
     return items;
-  }, [search, tab, selectedTags, sortBy]);
+  }, [search, tab, youtubeItems, sortBy]);
 
   if (!authReady) {
     return (
@@ -258,7 +425,7 @@ function AiExploreClient() {
                         className={pillClass(tab === cat)}
                         onClick={() => {
                           setTab(cat);
-                          setSelectedTags([]);
+                          setActiveKeywords([]);
                         }}
                       >
                         <Icon size={14} />
@@ -268,26 +435,64 @@ function AiExploreClient() {
                   })}
                 </div>
                 {tab === 'youtube' && (
-                  <div className="flex flex-wrap items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs text-gray-500 shadow-sm">
+                  <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-gray-200 bg-white px-3 py-2 text-xs text-gray-500 shadow-sm">
                     <Filter size={14} className="text-gray-400" />
-                    <span className="font-medium text-gray-600">{uiText.filterLabel}</span>
+                    <span className="font-medium text-gray-600">{uiText.filterHint}</span>
                     <div className="flex flex-wrap items-center gap-1">
-                      {availableTags.map((tag) => (
-                        <button
-                          key={tag}
-                          type="button"
-                          onClick={() => toggleTag(tag)}
-                          className={tagPillClass(selectedTags.includes(tag))}
-                          aria-pressed={selectedTags.includes(tag)}
-                        >
-                          {tag}
-                        </button>
-                      ))}
+                      {keywords.length === 0 ? (
+                        <span className="text-gray-400">{uiText.keywordEmpty}</span>
+                      ) : (
+                        keywords.map((keyword) => (
+                          <span
+                            key={keyword}
+                            className={tagPillClass(activeKeywords.includes(keyword))}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => toggleKeyword(keyword)}
+                              className="px-1"
+                              aria-pressed={activeKeywords.includes(keyword)}
+                            >
+                              {keyword}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveKeyword(keyword)}
+                              className="ml-1 rounded-full p-0.5 text-gray-400 hover:text-gray-600"
+                              title={locale === 'zh' ? '移除' : 'Remove'}
+                            >
+                              <X size={10} />
+                            </button>
+                          </span>
+                        ))
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-0.5">
+                      <input
+                        value={keywordInput}
+                        onChange={(e) => setKeywordInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleAddKeyword();
+                          }
+                        }}
+                        placeholder={uiText.keywordPlaceholder}
+                        className="w-24 bg-transparent text-xs text-gray-600 outline-none placeholder:text-gray-400"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleAddKeyword}
+                        className="inline-flex items-center gap-1 rounded-full bg-purple-50 px-2 py-0.5 text-[11px] font-semibold text-purple-700 hover:bg-purple-100"
+                      >
+                        <Plus size={12} />
+                        {uiText.keywordAdd}
+                      </button>
                     </div>
                     <select
                       value={sortBy}
                       onChange={(e) => setSortBy(e.target.value as 'latest' | 'oldest')}
-                      className="ml-1 rounded-full border border-gray-200 bg-white px-2 py-0.5 text-xs text-gray-600 outline-none"
+                      className="rounded-full border border-gray-200 bg-white px-2 py-0.5 text-xs text-gray-600 outline-none"
                     >
                       <option value="latest">{uiText.sortLatest}</option>
                       <option value="oldest">{uiText.sortOldest}</option>
@@ -299,11 +504,22 @@ function AiExploreClient() {
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-8">
+        <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-6 sm:px-8">
           <div className="mx-auto w-full max-w-6xl">
+            {tab === 'youtube' && youtubeError ? (
+              <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                {youtubeError}
+              </div>
+            ) : null}
+            {tab === 'youtube' && filtered.length > 0 ? (
+              <div className="mb-3 flex items-center justify-between text-xs text-gray-500">
+                <span>{uiText.loadedCount(youtubeItems.length)}</span>
+                {youtubeLoadingMore && <span>{uiText.youtubeLoadingMore}</span>}
+              </div>
+            ) : null}
             {filtered.length === 0 ? (
               <div className="rounded-2xl border border-gray-200 bg-white p-10 text-center text-sm text-gray-400">
-                {uiText.empty}
+                {tab === 'youtube' && youtubeLoading ? uiText.youtubeLoading : uiText.empty}
               </div>
             ) : (
               <div className="space-y-4">
@@ -391,11 +607,42 @@ function AiExploreClient() {
                     </div>
                   );
                 })}
+                {tab === 'youtube' && (
+                  <div className="flex items-center justify-center pt-2">
+                    <button
+                      type="button"
+                      onClick={handleLoadMore}
+                      disabled={!nextPageToken || youtubeLoadingMore}
+                      className={[
+                        'rounded-full border px-4 py-2 text-sm font-semibold transition-colors',
+                        nextPageToken
+                          ? 'border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100'
+                          : 'border-gray-200 bg-gray-50 text-gray-400',
+                      ].join(' ')}
+                    >
+                      {nextPageToken
+                        ? youtubeLoadingMore ? uiText.youtubeLoadingMore : uiText.youtubeMore
+                        : uiText.youtubeNoMore}
+                    </button>
+                  </div>
+                )}
+                {tab === 'youtube' && <div ref={sentinelRef} className="h-1" />}
               </div>
             )}
           </div>
         </div>
       </main>
+
+      {showBackTop && (
+        <button
+          type="button"
+          onClick={handleBackTop}
+          className="fixed bottom-6 right-6 z-30 flex items-center gap-2 rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-700 shadow-lg hover:bg-gray-50"
+        >
+          <ArrowUp size={16} />
+          {uiText.backToTop}
+        </button>
+      )}
     </div>
   );
 }

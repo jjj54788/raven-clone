@@ -13,6 +13,7 @@ export function setToken(token: string) {
 export function clearToken() {
   localStorage.removeItem('raven_token');
   localStorage.removeItem('raven_user');
+  emitUserChanged();
 }
 
 export type RavenUser = {
@@ -22,6 +23,28 @@ export type RavenUser = {
   credits: number;
   isAdmin?: boolean;
   avatarUrl?: string | null;
+  bio?: string | null;
+  interests?: string[];
+  settings?: ProfileSettings;
+  integrations?: ProfileIntegrations;
+  createdAt?: string;
+};
+
+export type ProfileSettings = {
+  userBubble: string;
+  aiBubble: string;
+  notifyEmail: boolean;
+  notifyProduct: boolean;
+  notifyWeekly: boolean;
+  darkMode: boolean;
+  locale?: 'en' | 'zh';
+};
+
+export type ProfileIntegrations = {
+  notion: boolean;
+  drive: boolean;
+  feishu: boolean;
+  feishuOpenId: string;
 };
 
 export function getUser(): RavenUser | null {
@@ -32,6 +55,22 @@ export function getUser(): RavenUser | null {
 
 export function setUser(user: RavenUser) {
   localStorage.setItem('raven_user', JSON.stringify(user));
+  emitUserChanged();
+}
+
+const USER_EVENT = 'raven:user';
+
+export function emitUserChanged() {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new Event(USER_EVENT));
+}
+
+export function subscribeUserChanged(cb: () => void) {
+  if (typeof window === 'undefined') return () => {};
+  window.addEventListener(USER_EVENT, cb);
+  return () => {
+    window.removeEventListener(USER_EVENT, cb);
+  };
 }
 
 // ---- 通用请求 ----
@@ -88,6 +127,19 @@ export async function register(email: string, name: string, password: string) {
 
 export async function getMe() {
   return apiFetch('/auth/me');
+}
+
+export async function updateProfile(payload: {
+  name?: string;
+  bio?: string;
+  interests?: string[];
+  settings?: ProfileSettings;
+  integrations?: ProfileIntegrations;
+}) {
+  return apiFetch('/auth/me', {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
 }
 
 // ---- Admin ----
@@ -290,6 +342,40 @@ export async function sendStreamChat(
     }
     onError(err.message || 'Network error');
   }
+}
+
+// ---- Explore ----
+export type YoutubeExploreItem = {
+  id: string;
+  title: string;
+  description: string;
+  url: string;
+  channel: string;
+  publishedAt: string;
+  thumbnailUrl?: string;
+};
+
+export type YoutubeExploreResponse = {
+  items: YoutubeExploreItem[];
+  nextPageToken?: string;
+  prevPageToken?: string;
+};
+
+export async function getYoutubeExplore(params?: {
+  q?: string;
+  keywords?: string[];
+  order?: 'latest' | 'oldest' | 'relevance';
+  maxResults?: number;
+  pageToken?: string;
+}): Promise<YoutubeExploreResponse> {
+  const qp = new URLSearchParams();
+  if (params?.q) qp.set('q', params.q);
+  if (params?.keywords && params.keywords.length > 0) qp.set('keywords', params.keywords.join(','));
+  if (params?.order) qp.set('order', params.order);
+  if (params?.maxResults) qp.set('maxResults', String(params.maxResults));
+  if (params?.pageToken) qp.set('pageToken', params.pageToken);
+  const qs = qp.toString();
+  return apiFetch(`/explore/youtube${qs ? `?${qs}` : ''}`);
 }
 
 // ---- Sessions ----

@@ -7,8 +7,19 @@ import { StoreModule } from './modules/store/store.module';
 import { TodoModule } from './modules/todo/todo.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { CheckInModule } from './modules/checkin/checkin.module';
+import { ExploreModule } from './modules/explore/explore.module';
 
 @Module({
-  imports: [PrismaModule, AuthModule, AiModule, AskModule, StoreModule, TodoModule, AdminModule, CheckInModule],
+  imports: [
+    PrismaModule,
+    AuthModule,
+    AiModule,
+    AskModule,
+    StoreModule,
+    TodoModule,
+    AdminModule,
+    CheckInModule,
+    ExploreModule,
+  ],
 })
 export class AppModule {}

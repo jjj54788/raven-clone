@@ -267,9 +267,15 @@ export const exploreItems: ExploreItem[] = [
 
 const STORAGE_PREFIX = 'raven_ai_explore_bookmarks';
 const EVENT_NAME = 'raven:ai-explore-bookmarks';
+const KEYWORDS_PREFIX = 'raven_ai_explore_keywords';
+const KEYWORDS_EVENT = 'raven:ai-explore-keywords';
 
 function storageKey(userId?: string | null): string {
   return `${STORAGE_PREFIX}_${userId || 'guest'}`;
+}
+
+function keywordsKey(userId?: string | null): string {
+  return `${KEYWORDS_PREFIX}_${userId || 'guest'}`;
 }
 
 function normalizeBookmarks(value: unknown): string[] {
@@ -281,6 +287,19 @@ function normalizeBookmarks(value: unknown): string[] {
     }
   }
   return Array.from(unique);
+}
+
+function normalizeKeywords(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const unique = new Map<string, string>();
+  for (const item of value) {
+    if (typeof item !== 'string') continue;
+    const trimmed = item.trim();
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    if (!unique.has(key)) unique.set(key, trimmed);
+  }
+  return Array.from(unique.values());
 }
 
 export function loadExploreBookmarks(userId?: string | null): string[] {
@@ -329,6 +348,57 @@ export function subscribeExploreBookmarks(cb: () => void) {
   window.addEventListener('storage', onStorage);
   return () => {
     window.removeEventListener(EVENT_NAME, cb);
+    window.removeEventListener('storage', onStorage);
+  };
+}
+
+export function loadExploreKeywords(userId?: string | null): string[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(keywordsKey(userId));
+    if (!raw) return [];
+    return normalizeKeywords(JSON.parse(raw));
+  } catch {
+    return [];
+  }
+}
+
+export function saveExploreKeywords(userId: string | null | undefined, items: string[]): string[] {
+  if (typeof window === 'undefined') return [];
+  const normalized = normalizeKeywords(items);
+  window.localStorage.setItem(keywordsKey(userId), JSON.stringify(normalized));
+  emitExploreKeywordsChanged();
+  return normalized;
+}
+
+export function addExploreKeyword(userId: string | null | undefined, keyword: string): string[] {
+  const current = loadExploreKeywords(userId);
+  return saveExploreKeywords(userId, [...current, keyword]);
+}
+
+export function removeExploreKeyword(userId: string | null | undefined, keyword: string): string[] {
+  const current = loadExploreKeywords(userId);
+  const target = keyword.trim().toLowerCase();
+  const next = current.filter((item) => item.trim().toLowerCase() !== target);
+  return saveExploreKeywords(userId, next);
+}
+
+export function emitExploreKeywordsChanged() {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new Event(KEYWORDS_EVENT));
+}
+
+export function subscribeExploreKeywords(cb: () => void) {
+  if (typeof window === 'undefined') return () => {};
+  const onStorage = (event: StorageEvent) => {
+    if (event.key && event.key.startsWith(KEYWORDS_PREFIX)) {
+      cb();
+    }
+  };
+  window.addEventListener(KEYWORDS_EVENT, cb);
+  window.addEventListener('storage', onStorage);
+  return () => {
+    window.removeEventListener(KEYWORDS_EVENT, cb);
     window.removeEventListener('storage', onStorage);
   };
 }
