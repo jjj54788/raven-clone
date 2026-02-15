@@ -1,12 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   Settings, Search, BookOpen, Eye, FlaskConical,
   FileText, Users, Target, LayoutGrid, PenTool,
   Store, Bell, Globe, ChevronLeft, ChevronRight, Monitor, Menu, LogOut, Shield, ListTodo,
+  User, Wallet, CheckCircle2,
 } from 'lucide-react';
 import { clearToken, getUser } from '@/lib/api';
 import { useLanguage } from '@/i18n/LanguageContext';
@@ -22,16 +23,48 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ collapsed, onToggle, onShowHistory, userName }: SidebarProps) {
-  const { t, toggleLocale } = useLanguage();
+  const { t, toggleLocale, locale } = useLanguage();
   const pathname = usePathname();
   const [unreadCount, setUnreadCount] = useState(0);
-  const isAdmin = !!getUser()?.isAdmin;
+  const user = getUser();
+  const isAdmin = !!user?.isAdmin;
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement | null>(null);
+
+  const userText = useMemo(() => {
+    const zh = {
+      profile: '\u4e2a\u4eba\u8d44\u6599',
+      points: '\u79ef\u5206\u4e2d\u5fc3',
+      checkIn: '\u7b7e\u5230',
+      logout: '\u9000\u51fa\u767b\u5f55',
+      balance: '\u4f59\u989d',
+    };
+    const en = {
+      profile: 'Profile',
+      points: 'Points',
+      checkIn: 'Check-in',
+      logout: 'Log out',
+      balance: 'Balance',
+    };
+    return locale === 'zh' ? zh : en;
+  }, [locale]);
 
   useEffect(() => {
     const update = () => setUnreadCount(getUnreadCount());
     update();
     return subscribeNotificationsChanged(update);
   }, []);
+
+  useEffect(() => {
+    if (!userMenuOpen) return;
+    const handleClick = (event: MouseEvent) => {
+      if (!userMenuRef.current) return;
+      if (userMenuRef.current.contains(event.target as Node)) return;
+      setUserMenuOpen(false);
+    };
+    window.addEventListener('mousedown', handleClick);
+    return () => window.removeEventListener('mousedown', handleClick);
+  }, [userMenuOpen]);
 
   const menuSections = [
     {
@@ -41,17 +74,17 @@ export default function Sidebar({ collapsed, onToggle, onShowHistory, userName }
     {
       titleKey: 'sidebar.knowledge',
       items: [
-        { icon: Search, labelKey: 'sidebar.aiExplore', href: '/coming-soon' },
-        { icon: BookOpen, labelKey: 'sidebar.myLibrary', href: '/coming-soon' },
+        { icon: Search, labelKey: 'sidebar.aiExplore', href: '/ai-explore', active: pathname.startsWith('/ai-explore') },
+        { icon: BookOpen, labelKey: 'sidebar.myLibrary', href: '/my-library', active: pathname.startsWith('/my-library') },
       ],
     },
     {
       titleKey: 'sidebar.researchAnalysis',
       items: [
-        { icon: Eye, labelKey: 'sidebar.aiInsights', href: '/coming-soon' },
+        { icon: Eye, labelKey: 'sidebar.aiInsights', href: '/ai-insights', active: pathname.startsWith('/ai-insights') },
         { icon: FlaskConical, labelKey: 'sidebar.aiResearch', href: '/coming-soon' },
         { icon: FileText, labelKey: 'sidebar.aiReports', href: '/coming-soon' },
-        { icon: Users, labelKey: 'sidebar.myTeams', href: '/coming-soon' },
+        { icon: Users, labelKey: 'sidebar.myTeams', href: '/teams', active: pathname.startsWith('/teams') },
       ],
     },
     {
@@ -192,17 +225,70 @@ export default function Sidebar({ collapsed, onToggle, onShowHistory, userName }
             <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-purple-600" />
           )}
         </Link>
-        <div className={`flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm text-gray-600 ${collapsed ? 'justify-center' : ''}`}>
-          <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-purple-100 text-xs font-medium text-purple-700">
-            {(userName || 'U')[0].toUpperCase()}
-          </div>
-          {!collapsed && (
-            <span className="flex-1 truncate">{userName || 'User'}</span>
-          )}
-          {!collapsed && (
-            <button onClick={handleLogout} className="rounded p-1 text-gray-400 hover:text-red-500" title={t('sidebar.logout')}>
-              <LogOut size={14} />
-            </button>
+        <div ref={userMenuRef} className="relative">
+          <button
+            type="button"
+            onClick={() => setUserMenuOpen((prev) => !prev)}
+            className={`flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm text-gray-600 hover:bg-gray-50 ${collapsed ? 'justify-center' : ''}`}
+          >
+            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-purple-100 text-xs font-medium text-purple-700">
+              {(userName || 'U')[0].toUpperCase()}
+            </div>
+            {!collapsed && <span className="flex-1 truncate">{userName || 'User'}</span>}
+          </button>
+
+          {userMenuOpen && (
+            <div
+              className={[
+                'absolute left-0 bottom-12 z-50 w-60 rounded-2xl border border-gray-200 bg-white p-3 shadow-xl',
+                collapsed ? 'left-12' : '',
+              ].join(' ')}
+            >
+              <div className="mb-3">
+                <p className="text-sm font-semibold text-gray-900">{userName || user?.name || 'User'}</p>
+                <p className="text-xs text-gray-400">{user?.email || '\u2014'}</p>
+              </div>
+              <div className="mb-3 rounded-xl border border-gray-100 bg-gray-50 px-3 py-2">
+                <div className="flex items-center justify-between text-xs text-gray-500">
+                  <span className="inline-flex items-center gap-1">
+                    <Wallet size={12} />
+                    {userText.balance}
+                  </span>
+                  <span className="font-semibold text-gray-800">{user?.credits ?? 0}</span>
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Link
+                  href="/profile"
+                  className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-gray-600 hover:bg-gray-50"
+                >
+                  <User size={14} />
+                  {userText.profile}
+                </Link>
+                <Link
+                  href="/coming-soon"
+                  className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-gray-600 hover:bg-gray-50"
+                >
+                  <Wallet size={14} />
+                  {userText.points}
+                </Link>
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-gray-600 hover:bg-gray-50"
+                >
+                  <CheckCircle2 size={14} className="text-emerald-500" />
+                  {userText.checkIn}
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="mt-3 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-red-600 hover:bg-red-50"
+              >
+                <LogOut size={14} />
+                {userText.logout}
+              </button>
+            </div>
           )}
         </div>
         <button
@@ -217,3 +303,4 @@ export default function Sidebar({ collapsed, onToggle, onShowHistory, userName }
     </aside>
   );
 }
+

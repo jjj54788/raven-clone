@@ -14,6 +14,10 @@ model User {
   password  String?
   provider  String   @default("local")
   avatarUrl String?
+  bio       String?
+  interests String[] @default([])
+  settings  Json?
+  integrations Json?
   credits   Int      @default(100)
   isAdmin   Boolean  @default(false)
   createdAt DateTime @default(now())
@@ -23,6 +27,8 @@ model User {
   todoLists TodoList[]
   storeCustomItems StoreCustomItem[]
   dailyCheckIns DailyCheckIn[]
+  teamsOwned Team[]
+  teamMemberships TeamMember[]
 }
 
 model Session {
@@ -150,4 +156,172 @@ model DailyCheckIn {
 
   @@unique([userId, dateKey])
   @@index([userId, createdAt])
+}
+
+enum TeamMemberRole {
+  OWNER
+  MEMBER
+}
+
+enum TeamMissionStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELED
+}
+
+enum TeamMissionTaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+  REVISION
+}
+
+enum TeamMissionActivityLevel {
+  INFO
+  WARNING
+  ERROR
+}
+
+model Team {
+  id          String   @id @default(uuid())
+  ownerUserId String
+  name        String
+  description String?
+  tags        String[] @default([])
+  isPublic    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  owner      User            @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  members    TeamMember[]
+  assistants TeamAssistant[]
+  missions   TeamMission[]
+
+  @@index([ownerUserId])
+  @@index([isPublic])
+}
+
+model TeamMember {
+  id        String         @id @default(uuid())
+  teamId    String
+  userId    String
+  role      TeamMemberRole @default(MEMBER)
+  createdAt DateTime       @default(now())
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+  @@index([userId])
+  @@index([teamId])
+}
+
+model TeamAssistant {
+  id              String   @id @default(uuid())
+  teamId          String
+  displayName     String
+  modelId         String
+  provider        String?
+  roleTitle       String?
+  roleDescription String?
+  currentGoal     String?
+  isLeader        Boolean  @default(false)
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  team           Team                 @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  leaderMissions TeamMission[]        @relation("TeamMissionLeader")
+  tasks          TeamMissionTask[]
+  activities     TeamMissionActivity[]
+
+  @@index([teamId])
+  @@index([teamId, isLeader])
+}
+
+model TeamMission {
+  id                String            @id @default(uuid())
+  teamId            String
+  title             String
+  description       String
+  leaderAssistantId String?
+  notificationEmail String?
+  status            TeamMissionStatus @default(PENDING)
+  totalTasks        Int               @default(0)
+  completedTasks    Int               @default(0)
+  reportMarkdown    String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  team            Team                 @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  leaderAssistant TeamAssistant?       @relation("TeamMissionLeader", fields: [leaderAssistantId], references: [id], onDelete: SetNull)
+  tasks           TeamMissionTask[]
+  activities      TeamMissionActivity[]
+  sources         TeamMissionSource[]
+
+  @@index([teamId, createdAt])
+  @@index([teamId, status])
+}
+
+model TeamMissionTask {
+  id             String                @id @default(uuid())
+  missionId      String
+  assistantId    String?
+  title          String
+  description    String?
+  status         TeamMissionTaskStatus @default(TODO)
+  sortOrder      Int                   @default(0)
+  outputMarkdown String?
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  mission    TeamMission     @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  assistant  TeamAssistant?  @relation(fields: [assistantId], references: [id], onDelete: SetNull)
+  activities TeamMissionActivity[]
+
+  @@index([missionId, sortOrder])
+  @@index([assistantId])
+  @@index([status])
+}
+
+model TeamMissionActivity {
+  id          String                   @id @default(uuid())
+  missionId   String
+  taskId      String?
+  assistantId String?
+  level       TeamMissionActivityLevel @default(INFO)
+  title       String
+  message     String?
+  createdAt   DateTime                 @default(now())
+
+  mission   TeamMission      @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  task      TeamMissionTask? @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  assistant TeamAssistant?   @relation(fields: [assistantId], references: [id], onDelete: SetNull)
+
+  @@index([missionId, createdAt])
+  @@index([taskId])
+  @@index([assistantId])
+  @@index([level])
+}
+
+model TeamMissionSource {
+  id          String   @id @default(uuid())
+  missionId   String
+  url         String
+  title       String?
+  domain      String?
+  snippet     String?
+  trustScore  Int      @default(50)
+  citedCount  Int      @default(0)
+  publishedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  mission TeamMission @relation(fields: [missionId], references: [id], onDelete: Cascade)
+
+  @@unique([missionId, url])
+  @@index([missionId])
+  @@index([trustScore])
 }

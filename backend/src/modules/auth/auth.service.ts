@@ -9,6 +9,81 @@ export class AuthService {
   constructor(private readonly prisma: PrismaService) {}
 
   private readonly inviteOnlySettingKey = 'auth.inviteOnly';
+  private readonly defaultProfileSettings = {
+    userBubble: 'purple',
+    aiBubble: 'soft',
+    notifyEmail: true,
+    notifyProduct: true,
+    notifyWeekly: false,
+    darkMode: false,
+    locale: 'en' as const,
+  };
+  private readonly defaultIntegrations = {
+    notion: false,
+    drive: false,
+    feishu: false,
+    feishuOpenId: '',
+  };
+
+  private normalizeInterests(input: unknown): string[] {
+    if (!Array.isArray(input)) return [];
+    const unique = new Set<string>();
+    for (const item of input) {
+      if (typeof item !== 'string') continue;
+      const trimmed = item.trim();
+      if (!trimmed) continue;
+      unique.add(trimmed.slice(0, 48));
+      if (unique.size >= 12) break;
+    }
+    return Array.from(unique);
+  }
+
+  private normalizeSettings(input: unknown) {
+    const base = { ...this.defaultProfileSettings };
+    if (!input || typeof input !== 'object') return base;
+    const settings = input as Record<string, any>;
+    if (typeof settings.userBubble === 'string' && settings.userBubble.trim()) {
+      base.userBubble = settings.userBubble.trim().slice(0, 32);
+    }
+    if (typeof settings.aiBubble === 'string' && settings.aiBubble.trim()) {
+      base.aiBubble = settings.aiBubble.trim().slice(0, 32);
+    }
+    if (typeof settings.notifyEmail === 'boolean') base.notifyEmail = settings.notifyEmail;
+    if (typeof settings.notifyProduct === 'boolean') base.notifyProduct = settings.notifyProduct;
+    if (typeof settings.notifyWeekly === 'boolean') base.notifyWeekly = settings.notifyWeekly;
+    if (typeof settings.darkMode === 'boolean') base.darkMode = settings.darkMode;
+    if (settings.locale === 'en' || settings.locale === 'zh') base.locale = settings.locale;
+    return base;
+  }
+
+  private normalizeIntegrations(input: unknown) {
+    const base = { ...this.defaultIntegrations };
+    if (!input || typeof input !== 'object') return base;
+    const integrations = input as Record<string, any>;
+    if (typeof integrations.notion === 'boolean') base.notion = integrations.notion;
+    if (typeof integrations.drive === 'boolean') base.drive = integrations.drive;
+    if (typeof integrations.feishu === 'boolean') base.feishu = integrations.feishu;
+    if (typeof integrations.feishuOpenId === 'string') {
+      base.feishuOpenId = integrations.feishuOpenId.trim().slice(0, 128);
+    }
+    return base;
+  }
+
+  private serializeUser(user: any) {
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      credits: user.credits,
+      isAdmin: user.isAdmin,
+      avatarUrl: user.avatarUrl,
+      bio: user.bio ?? '',
+      interests: this.normalizeInterests(user.interests),
+      settings: this.normalizeSettings(user.settings),
+      integrations: this.normalizeIntegrations(user.integrations),
+      createdAt: user.createdAt,
+    };
+  }
 
   private parseBooleanEnv(value: string | undefined): boolean | null {
     if (value == null) return null;
@@ -122,7 +197,7 @@ export class AuthService {
 
     const tokens = this.generateTokens(user.id);
     return {
-      user: { id: user.id, email: user.email, name: user.name, credits: user.credits, isAdmin: user.isAdmin },
+      user: this.serializeUser(user),
       ...tokens,
     };
   }
@@ -145,7 +220,7 @@ export class AuthService {
 
     const tokens = this.generateTokens(user.id);
     return {
-      user: { id: user.id, email: user.email, name: user.name, credits: user.credits, isAdmin: user.isAdmin },
+      user: this.serializeUser(user),
       ...tokens,
     };
   }
@@ -197,14 +272,7 @@ export class AuthService {
 
     const tokens = this.generateTokens(user.id);
     return {
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        credits: user.credits,
-        isAdmin: user.isAdmin,
-        avatarUrl: user.avatarUrl,
-      },
+      user: this.serializeUser(user),
       ...tokens,
     };
   }
@@ -214,13 +282,45 @@ export class AuthService {
     if (!user) {
       throw new UnauthorizedException('User not found');
     }
-    return {
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      credits: user.credits,
-      isAdmin: user.isAdmin,
-      avatarUrl: user.avatarUrl,
-    };
+    return this.serializeUser(user);
+  }
+
+  async updateProfile(userId: string, payload: {
+    name?: string;
+    bio?: string;
+    interests?: string[];
+    settings?: Record<string, any>;
+    integrations?: Record<string, any>;
+  }) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    const data: any = {};
+    if (typeof payload.name === 'string') {
+      const trimmed = payload.name.trim();
+      if (trimmed) data.name = trimmed.slice(0, 128);
+    }
+    if (typeof payload.bio === 'string') {
+      const trimmed = payload.bio.trim();
+      data.bio = trimmed ? trimmed.slice(0, 500) : null;
+    }
+    if (payload.interests) {
+      data.interests = this.normalizeInterests(payload.interests);
+    }
+    if (payload.settings) {
+      data.settings = this.normalizeSettings({ ...this.normalizeSettings(user.settings), ...payload.settings });
+    }
+    if (payload.integrations) {
+      data.integrations = this.normalizeIntegrations({ ...this.normalizeIntegrations(user.integrations), ...payload.integrations });
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data,
+    });
+
+    return this.serializeUser(updated);
   }
 }

@@ -62,6 +62,7 @@ api.ts
 changelog.ts
 firebase.ts
 notifications.ts
+profile.ts
 teams.ts
 version.ts
 ```

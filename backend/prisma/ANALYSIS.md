@@ -73,6 +73,10 @@ migrations/20260215203000_add_store_custom_items/
 migrations/20260215203000_add_store_custom_items/migration.sql
 migrations/20260215211000_add_daily_checkins/
 migrations/20260215211000_add_daily_checkins/migration.sql
+migrations/20260215223000_add_teams/
+migrations/20260215223000_add_teams/migration.sql
+migrations/20260215234500_add_user_profile_fields/
+migrations/20260215234500_add_user_profile_fields/migration.sql
 migrations/migration_lock.toml
 schema.prisma
 seed.ts
