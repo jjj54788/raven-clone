@@ -88,6 +88,15 @@ function listGitFiles(repoRootAbs, prefixRel) {
   return out.split('\n').map((l) => l.trim()).filter(Boolean);
 }
 
+function listGitFilesWorktree(repoRootAbs, prefixRel) {
+  const prefix = prefixRel && prefixRel !== '.' ? prefixRel : '';
+  const args = ['ls-files', '--cached', '--others', '--exclude-standard'];
+  if (prefix) args.push('--', prefix);
+  const out = runGit(repoRootAbs, args);
+  if (!out) return [];
+  return out.split('\n').map((l) => l.trim()).filter(Boolean);
+}
+
 function readGitFileFromIndex(repoRootAbs, relPath) {
   // relPath must be repository-relative (POSIX separators).
   return runGit(repoRootAbs, ['show', `:${relPath}`]) + '\n';
@@ -139,7 +148,7 @@ function parseNestControllerRoutesFromContent(content) {
 
 async function detectNestRoutesFromWorktree(scopeDirAbs, repoRootAbs) {
   const controllerFiles = await walkFiles(scopeDirAbs, {
-    maxDepth: 4,
+    maxDepth: 10,
     wantFile: (p) => p.endsWith('.controller.ts'),
   });
   if (controllerFiles.length === 0) return [];
@@ -254,6 +263,34 @@ function renderGitFileTree(scopeRel, repoRootAbs, { maxDepth = 2, maxEntries = 2
   return sliced;
 }
 
+function renderWorktreeFileTree(scopeRel, repoRootAbs, { maxDepth = 2, maxEntries = 200 } = {}) {
+  const files = listGitFilesWorktree(repoRootAbs, scopeRel);
+  const scope = scopeRel && scopeRel !== '.' ? scopeRel : '.';
+
+  const dirs = new Set();
+  const fileLines = [];
+
+  for (const f of files) {
+    const rel = scope === '.' ? f : path.posix.relative(scope, f);
+    if (!rel || rel === '.') continue;
+    const parts = rel.split('/').filter(Boolean);
+    const dirDepth = Math.max(0, parts.length - 1);
+
+    for (let d = 1; d <= Math.min(dirDepth, maxDepth); d++) {
+      dirs.add(parts.slice(0, d).join('/') + '/');
+    }
+    if (dirDepth <= maxDepth) fileLines.push(rel);
+  }
+
+  const lines = [...dirs, ...fileLines]
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b));
+
+  const sliced = lines.slice(0, maxEntries);
+  if (lines.length > maxEntries) sliced.push('... (truncated)');
+  return sliced;
+}
+
 function updateLastUpdatedLine(markdown, newYmd) {
   const re = /^Last updated:\s*.*$/m;
   if (re.test(markdown)) return markdown.replace(re, `Last updated: ${newYmd}`);
@@ -303,7 +340,9 @@ async function buildAutoSection({ analysisFileAbs, repoRootAbs, source }) {
   }
 
   const treeDepth = scopeRel === '.' ? 2 : 3;
-  const tree = renderGitFileTree(scopeRel, repoRootAbs, { maxDepth: treeDepth, maxEntries: 220 });
+  const tree = source === 'worktree'
+    ? renderWorktreeFileTree(scopeRel, repoRootAbs, { maxDepth: treeDepth, maxEntries: 220 })
+    : renderGitFileTree(scopeRel, repoRootAbs, { maxDepth: treeDepth, maxEntries: 220 });
 
   const parts = [];
   parts.push('## Auto-Generated Snapshot');

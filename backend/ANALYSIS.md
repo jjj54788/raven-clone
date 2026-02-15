@@ -142,6 +142,7 @@ src/modules/admin/
 src/modules/admin/admin.controller.ts
 src/modules/admin/admin.module.ts
 src/modules/admin/admin.service.ts
+src/modules/admin/ANALYSIS.md
 src/modules/ai/
 src/modules/ai/ai-usage.service.ts
 src/modules/ai/ai.controller.ts
@@ -159,6 +160,7 @@ src/modules/auth/auth.controller.ts
 src/modules/auth/auth.module.ts
 src/modules/auth/auth.service.ts
 src/modules/checkin/
+src/modules/checkin/ANALYSIS.md
 src/modules/checkin/checkin.controller.ts
 src/modules/checkin/checkin.module.ts
 src/modules/checkin/checkin.service.ts
@@ -174,6 +176,7 @@ src/modules/store/store.module.ts
 src/modules/store/store.service.ts
 src/modules/store/store.types.ts
 src/modules/todo/
+src/modules/todo/ANALYSIS.md
 src/modules/todo/todo.controller.ts
 src/modules/todo/todo.module.ts
 src/modules/todo/todo.service.ts
