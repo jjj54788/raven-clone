@@ -3,6 +3,13 @@ import { Response } from 'express';
 import { tavily } from '@tavily/core';
 import { AiService } from './ai.service';
 import { AuthService } from '../auth/auth.service';
+import { SimpleChatDto } from './dto/simple-chat.dto';
+import { StreamChatDto } from './dto/stream-chat.dto';
+
+const AI_DEBUG = process.env.AI_DEBUG === '1';
+function debugLog(...args: unknown[]) {
+  if (AI_DEBUG) console.log(...args);
+}
 
 function getCurrentDate(): string {
   return new Date().toISOString().split('T')[0]; // e.g. "2026-02-14"
@@ -37,7 +44,7 @@ export class AiController {
   ) {
     // Log Tavily status on startup
     if (process.env.TAVILY_API_KEY) {
-      console.log('[AI] Tavily Web Search: ENABLED (API key configured)');
+      console.log('[AI] Tavily Web Search: ENABLED');
     } else {
       console.warn('[AI] Tavily Web Search: DISABLED (TAVILY_API_KEY not set in .env)');
     }
@@ -50,13 +57,7 @@ export class AiController {
 
   @Post('simple-chat')
   async simpleChat(
-    @Body() body: {
-      message: string;
-      messages?: Array<{ role: string; content: string }>;
-      model?: string;
-      sessionId?: string;
-      webSearch?: boolean;
-    },
+    @Body() body: SimpleChatDto,
     @Req() req: any,
   ) {
     const defaultModel = this.aiService.getDefaultModel();
@@ -84,16 +85,24 @@ export class AiController {
       { role: 'system', content: systemPrompt },
     ];
 
-    // Load history from database if session exists
-    if (body.sessionId) {
-      const userId = this.authService.getUserIdFromRequest(req);
-      if (userId) {
-        const history = await this.aiService.loadSessionHistory(body.sessionId);
+    const userId = body.sessionId ? this.authService.getUserIdFromRequest(req) : null;
+
+    // Load history from database if session exists and user is authenticated
+    if (body.sessionId && userId) {
+      try {
+        const history = await this.aiService.loadSessionHistory(body.sessionId, userId);
         msgs.push(...history);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        return {
+          content: `Error: ${message}`,
+          model: selectedModel.id,
+          provider: selectedModel.provider,
+        };
       }
     } else if (body.messages) {
       for (const m of body.messages) {
-        msgs.push({ role: m.role as 'system' | 'user' | 'assistant', content: m.content });
+        msgs.push({ role: m.role, content: m.content });
       }
     }
 
@@ -103,10 +112,12 @@ export class AiController {
       const content = await this.aiService.chat(selectedModel, msgs);
 
       // Save messages to database if session exists
-      if (body.sessionId) {
-        const userId = this.authService.getUserIdFromRequest(req);
-        if (userId) {
-          await this.aiService.saveMessages(body.sessionId, body.message, content, selectedModel.id);
+      if (body.sessionId && userId) {
+        try {
+          await this.aiService.saveMessages(body.sessionId, userId, body.message, content, selectedModel.id);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : 'Unknown error';
+          console.warn('[simple-chat] Failed to save messages:', message);
         }
       }
 
@@ -126,23 +137,29 @@ export class AiController {
    */
   @Post('stream-chat')
   async streamChat(
-    @Body() body: {
-      message: string;
-      model?: string;
-      sessionId?: string;
-      webSearch?: boolean;
-    },
+    @Body() body: StreamChatDto,
     @Req() req: any,
     @Res() res: Response,
   ) {
-    console.log(`[stream-chat] Received: message="${body.message?.slice(0, 30)}", model=${body.model}, sessionId=${body.sessionId}, webSearch=${body.webSearch}`);
+    debugLog(
+      `[stream-chat] Received`,
+      JSON.stringify({
+        messagePreview: body.message?.slice(0, 30),
+        model: body.model,
+        sessionId: body.sessionId,
+        webSearch: body.webSearch,
+      }),
+    );
+
+    // Always respond as SSE
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
 
     const defaultModel = this.aiService.getDefaultModel();
     if (!defaultModel) {
-      res.setHeader('Content-Type', 'text/event-stream');
-      res.setHeader('Cache-Control', 'no-cache');
-      res.setHeader('Connection', 'keep-alive');
-      res.flushHeaders();
       res.write(`data: ${JSON.stringify({ error: 'No AI API Key configured', done: true })}\n\n`);
       res.end();
       return;
@@ -155,10 +172,10 @@ export class AiController {
     // Web search if enabled
     let systemPrompt = getDefaultSystemPrompt();
     if (body.webSearch) {
-      console.log(`[stream-chat] Performing web search for: "${body.message.slice(0, 50)}"`);
+      debugLog(`[stream-chat] Performing web search`);
       const searchResults = await this.performWebSearch(body.message);
       systemPrompt = buildWebSearchPrompt(searchResults);
-      console.log(`[stream-chat] Web search complete, results length: ${searchResults.length}`);
+      debugLog(`[stream-chat] Web search complete, results length: ${searchResults.length}`);
     }
 
     // Build message history
@@ -168,11 +185,18 @@ export class AiController {
 
     if (body.sessionId) {
       const userId = this.authService.getUserIdFromRequest(req);
-      console.log(`[stream-chat] userId from token: ${userId}`);
+      debugLog(`[stream-chat] userId from token: ${userId}`);
       if (userId) {
-        const history = await this.aiService.loadSessionHistory(body.sessionId);
-        console.log(`[stream-chat] Loaded ${history.length} history messages`);
-        msgs.push(...history);
+        try {
+          const history = await this.aiService.loadSessionHistory(body.sessionId, userId);
+          debugLog(`[stream-chat] Loaded ${history.length} history messages`);
+          msgs.push(...history);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : 'Unknown error';
+          res.write(`data: ${JSON.stringify({ error: message, done: true })}\n\n`);
+          res.end();
+          return;
+        }
       }
     }
 
@@ -180,20 +204,25 @@ export class AiController {
 
     try {
       const fullContent = await this.aiService.chatStream(selectedModel, msgs, res);
-      console.log(`[stream-chat] Stream complete, content length: ${fullContent.length}`);
+      debugLog(`[stream-chat] Stream complete, content length: ${fullContent.length}`);
 
       // Save messages to database if session exists
       if (body.sessionId) {
         const userId = this.authService.getUserIdFromRequest(req);
         if (userId) {
-          console.log(`[stream-chat] Saving messages to session ${body.sessionId}`);
-          await this.aiService.saveMessages(body.sessionId, body.message, fullContent, selectedModel.id);
-          console.log(`[stream-chat] Messages saved successfully`);
+          debugLog(`[stream-chat] Saving messages to session ${body.sessionId}`);
+          try {
+            await this.aiService.saveMessages(body.sessionId, userId, body.message, fullContent, selectedModel.id);
+            debugLog(`[stream-chat] Messages saved successfully`);
+          } catch (err) {
+            const message = err instanceof Error ? err.message : 'Unknown error';
+            console.warn(`[stream-chat] Failed to save messages: ${message}`);
+          }
         } else {
-          console.log(`[stream-chat] No userId, skipping save`);
+          debugLog(`[stream-chat] No userId, skipping save`);
         }
       } else {
-        console.log(`[stream-chat] No sessionId, skipping save`);
+        debugLog(`[stream-chat] No sessionId, skipping save`);
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error';
@@ -212,39 +241,38 @@ export class AiController {
    */
   private async performWebSearch(query: string): Promise<string> {
     const apiKey = process.env.TAVILY_API_KEY;
-    console.log(`[webSearch] API key present: ${!!apiKey}, key prefix: ${apiKey ? apiKey.slice(0, 8) + '...' : 'N/A'}`);
+    debugLog(`[webSearch] API key present: ${!!apiKey}`);
 
     if (!apiKey) {
-      console.warn('[webSearch] TAVILY_API_KEY not configured, returning fallback');
+      console.warn('[webSearch] TAVILY_API_KEY not configured');
       return 'Web search is not available. TAVILY_API_KEY is not configured in backend/.env';
     }
 
     try {
-      console.log(`[webSearch] Searching Tavily for: "${query}"`);
+      debugLog(`[webSearch] Searching Tavily`);
       const tvly = tavily({ apiKey });
       const response = await tvly.search(query, {
         maxResults: 5,
         searchDepth: 'basic',
       });
 
-      console.log(`[webSearch] Got ${response.results?.length || 0} results`);
+      debugLog(`[webSearch] Got ${response.results?.length || 0} results`);
 
       if (!response.results || response.results.length === 0) {
-        console.log('[webSearch] No results returned');
+        debugLog('[webSearch] No results returned');
         return 'No search results found.';
       }
 
-      const results = response.results.map((r, i) => {
-        console.log(`[webSearch]   [${i + 1}] ${r.title} - ${r.url}`);
-        return `[${i + 1}] ${r.title}\nURL: ${r.url}\nContent: ${r.content}`;
-      }).join('\n\n');
+      const results = response.results.map((r, i) => (
+        `[${i + 1}] ${r.title}\nURL: ${r.url}\nContent: ${r.content}`
+      )).join('\n\n');
 
-      console.log(`[webSearch] Final results length: ${results.length} chars`);
+      debugLog(`[webSearch] Final results length: ${results.length} chars`);
       return results;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       console.error('[webSearch] Tavily search failed:', message);
-      console.error('[webSearch] Full error:', err);
+      debugLog('[webSearch] Full error:', err);
       return `Web search failed: ${message}`;
     }
   }

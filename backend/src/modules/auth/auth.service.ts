@@ -9,19 +9,23 @@ export class AuthService {
   constructor(private readonly prisma: PrismaService) {}
 
   private get jwtSecret(): string {
-    return process.env.JWT_SECRET || 'raven-secret';
+    const secret = process.env.JWT_SECRET;
+    if (!secret) {
+      throw new Error('JWT_SECRET is required');
+    }
+    return secret;
   }
 
   generateTokens(userId: string) {
-    const accessToken = jwt.sign({ sub: userId }, this.jwtSecret, { expiresIn: '7d' });
+    const accessToken = jwt.sign({ sub: userId, type: 'access' }, this.jwtSecret, { expiresIn: '7d' });
     const refreshToken = jwt.sign({ sub: userId, type: 'refresh' }, this.jwtSecret, { expiresIn: '30d' });
     return { accessToken, refreshToken };
   }
 
-  verifyToken(token: string): string | null {
+  private verifyToken(token: string): { sub: string; type?: string } | null {
     try {
-      const decoded = jwt.verify(token, this.jwtSecret) as { sub: string };
-      return decoded.sub;
+      const decoded = jwt.verify(token, this.jwtSecret) as { sub: string; type?: string };
+      return decoded;
     } catch {
       return null;
     }
@@ -30,7 +34,10 @@ export class AuthService {
   getUserIdFromRequest(req: { headers?: { authorization?: string } }): string | null {
     const auth = req.headers?.authorization;
     if (!auth?.startsWith('Bearer ')) return null;
-    return this.verifyToken(auth.slice(7));
+    const decoded = this.verifyToken(auth.slice(7));
+    if (!decoded) return null;
+    if (decoded.type === 'refresh') return null;
+    return decoded.sub;
   }
 
   async register(email: string, name: string, password: string) {

@@ -1,7 +1,9 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import OpenAI from 'openai';
 import { PrismaService } from '../prisma/prisma.service';
 import { Response } from 'express';
+
+const AI_DEBUG = process.env.AI_DEBUG === '1';
 
 export interface ModelConfig {
   id: string;
@@ -112,12 +114,13 @@ export class AiService implements OnModuleInit {
     messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
     res: Response,
   ): Promise<string> {
-    // Set SSE headers
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no');
-    res.flushHeaders();
+    if (!res.headersSent) {
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
+      res.flushHeaders();
+    }
 
     let fullContent = '';
 
@@ -158,7 +161,22 @@ export class AiService implements OnModuleInit {
     return fullContent;
   }
 
-  async loadSessionHistory(sessionId: string): Promise<Array<{ role: 'user' | 'assistant'; content: string }>> {
+  private async assertSessionOwnership(sessionId: string, userId: string) {
+    const session = await this.prisma.session.findFirst({
+      where: { id: sessionId, userId },
+      select: { id: true },
+    });
+    if (!session) {
+      // Return "not found" for both non-existent and non-owned sessions (prevents enumeration)
+      throw new NotFoundException('Session not found');
+    }
+  }
+
+  async loadSessionHistory(
+    sessionId: string,
+    userId: string,
+  ): Promise<Array<{ role: 'user' | 'assistant'; content: string }>> {
+    await this.assertSessionOwnership(sessionId, userId);
     const dbMessages = await this.prisma.message.findMany({
       where: { sessionId },
       orderBy: { createdAt: 'asc' },
@@ -167,9 +185,12 @@ export class AiService implements OnModuleInit {
     return dbMessages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }));
   }
 
-  async saveMessages(sessionId: string, userContent: string, aiContent: string, modelId: string) {
-    console.log(`[saveMessages] Saving to session ${sessionId}, model: ${modelId}`);
-    console.log(`[saveMessages] User: "${userContent.slice(0, 50)}...", AI: "${aiContent.slice(0, 50)}..."`);
+  async saveMessages(sessionId: string, userId: string, userContent: string, aiContent: string, modelId: string) {
+    await this.assertSessionOwnership(sessionId, userId);
+
+    if (AI_DEBUG) {
+      console.log(`[saveMessages] Saving to session ${sessionId}, model: ${modelId}`);
+    }
 
     try {
       await this.prisma.message.createMany({
@@ -190,7 +211,9 @@ export class AiService implements OnModuleInit {
         data: updateData,
       });
 
-      console.log(`[saveMessages] Success. Total messages in session: ${msgCount}`);
+      if (AI_DEBUG) {
+        console.log(`[saveMessages] Success. Total messages in session: ${msgCount}`);
+      }
     } catch (err) {
       console.error(`[saveMessages] Failed:`, err);
     }
