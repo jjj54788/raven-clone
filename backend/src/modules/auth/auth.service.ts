@@ -1,8 +1,8 @@
-import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException, ServiceUnavailableException } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
 import * as jwt from 'jsonwebtoken';
 import { PrismaService } from '../prisma/prisma.service';
-import { verifyFirebaseToken } from '../../utils/firebase-admin';
+import { isFirebaseAuthConfigured, verifyFirebaseToken } from '../../utils/firebase-admin';
 
 @Injectable()
 export class AuthService {
@@ -81,18 +81,34 @@ export class AuthService {
   }
 
   async googleLogin(firebaseToken: string) {
-    const decoded = await verifyFirebaseToken(firebaseToken);
+    if (!isFirebaseAuthConfigured()) {
+      throw new ServiceUnavailableException('Google Sign-In is not configured on the server');
+    }
+
+    const token = firebaseToken.trim();
+    if (!token) {
+      throw new BadRequestException('Missing Google token');
+    }
+
+    const decoded = await verifyFirebaseToken(token);
     if (!decoded) {
       throw new UnauthorizedException('Invalid Google token');
     }
 
-    let user = await this.prisma.user.findUnique({ where: { email: decoded.email } });
+    const email = decoded.email.trim();
+    if (!email) {
+      throw new BadRequestException('Google account email is not available for this user');
+    }
+
+    const name = decoded.name.trim() || email.split('@')[0] || 'Google User';
+
+    let user = await this.prisma.user.findUnique({ where: { email } });
 
     if (!user) {
       user = await this.prisma.user.create({
         data: {
-          email: decoded.email,
-          name: decoded.name,
+          email,
+          name,
           password: null,
           provider: 'google',
           avatarUrl: decoded.picture || null,

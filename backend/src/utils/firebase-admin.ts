@@ -1,16 +1,33 @@
 import * as admin from 'firebase-admin';
 
 let firebaseApp: admin.app.App | null = null;
+let didWarnMissingFirebaseEnv = false;
+
+export function isFirebaseAuthConfigured(): boolean {
+  if (admin.apps.length > 0) return true;
+  const projectId = process.env.FIREBASE_PROJECT_ID?.trim();
+  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL?.trim();
+  const privateKey = process.env.FIREBASE_PRIVATE_KEY?.trim();
+  return Boolean(projectId && clientEmail && privateKey);
+}
 
 function getFirebaseApp(): admin.app.App | null {
   if (firebaseApp) return firebaseApp;
 
-  const projectId = process.env.FIREBASE_PROJECT_ID;
-  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-  const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
+  if (admin.apps.length > 0) {
+    firebaseApp = admin.apps[0] ?? null;
+    return firebaseApp;
+  }
+
+  const projectId = process.env.FIREBASE_PROJECT_ID?.trim();
+  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL?.trim();
+  const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n')?.trim();
 
   if (!projectId || !clientEmail || !privateKey) {
-    console.warn('[Firebase] Missing environment variables. Google Sign-In will not work.');
+    if (!didWarnMissingFirebaseEnv) {
+      didWarnMissingFirebaseEnv = true;
+      console.warn('[Firebase] Missing environment variables. Google Sign-In will not work.');
+    }
     return null;
   }
 
@@ -29,10 +46,12 @@ export async function verifyFirebaseToken(
 
   try {
     const decoded = await app.auth().verifyIdToken(idToken);
+    const email = decoded.email?.trim() || '';
+    const name = decoded.name?.trim() || email || '';
     return {
       uid: decoded.uid,
-      email: decoded.email || '',
-      name: decoded.name || decoded.email || '',
+      email,
+      name,
       picture: decoded.picture || '',
     };
   } catch (error) {
