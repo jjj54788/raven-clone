@@ -33,6 +33,8 @@
   "chat.copy": "复制",
   "chat.copied": "已复制",
   "chat.quote": "引用",
+  "chat.stopGenerating": "停止生成",
+  "chat.scrollToBottom": "回到底部",
   "chat.toolsComingSoon": "工具（即将推出）",
 
   "welcome.goodMorning": "早上好",
@@ -79,5 +81,30 @@
 
   "comingSoon.title": "即将推出",
   "comingSoon.description": "此功能正在开发中，敬请期待！",
-  "comingSoon.backToAsk": "返回 AI 问答"
+  "comingSoon.backToAsk": "返回 AI 问答",
+
+  "notifications.title": "通知",
+  "notifications.noneUnread": "暂无未读通知",
+  "notifications.filterAll": "全部",
+  "notifications.filterUnread": "未读",
+  "notifications.markAllRead": "全部设为已读",
+  "notifications.clearAll": "清空",
+  "notifications.emptyTitle": "没有新通知",
+  "notifications.emptyHint": "新版本、提示和更新日志会显示在这里。",
+  "notifications.unread": "未读",
+  "notifications.markRead": "标记已读",
+
+  "whatsNew.title": "更新日志",
+  "whatsNew.back": "返回",
+  "whatsNew.currentVersion": "当前版本",
+  "whatsNew.releases": "个版本",
+  "whatsNew.latest": "最新",
+  "whatsNew.features": "新功能",
+  "whatsNew.bugFixes": "修复",
+  "whatsNew.improvements": "改进",
+  "whatsNew.breaking": "不兼容变更",
+
+  "checkin.reminder": "今天该打卡了",
+  "checkin.button": "打卡",
+  "checkin.done": "今天已打卡"
 }

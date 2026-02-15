@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import {
-  Globe, BookOpen, Wrench, ArrowUp, ChevronDown,
+  Globe, BookOpen, Wrench, ArrowUp, ChevronDown, Square,
 } from 'lucide-react';
 import { useLanguage } from '@/i18n/LanguageContext';
 
@@ -14,6 +14,7 @@ interface AIModel {
 
 interface ChatInputProps {
   onSend: (message: string, options?: { webSearch?: boolean }) => void;
+  onStop?: () => void;
   loading: boolean;
   selectedModel: AIModel | null;
   models: AIModel[];
@@ -31,7 +32,7 @@ function getProviderIcon(provider: string): string {
   }
 }
 
-export default function ChatInput({ onSend, loading, selectedModel, models, onSelectModel, quotedText, onClearQuote }: ChatInputProps) {
+export default function ChatInput({ onSend, onStop, loading, selectedModel, models, onSelectModel, quotedText, onClearQuote }: ChatInputProps) {
   const [input, setInput] = useState('');
   const [webSearch, setWebSearch] = useState(false);
   const [showModelMenu, setShowModelMenu] = useState(false);
@@ -57,6 +58,13 @@ export default function ChatInput({ onSend, loading, selectedModel, models, onSe
       textareaRef.current?.focus();
     }
   }, [quotedText, onClearQuote]);
+
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+  }, [input]);
 
   const handleSend = () => {
     if (!input.trim() || loading) return;
@@ -161,13 +169,25 @@ export default function ChatInput({ onSend, loading, selectedModel, models, onSe
           </div>
 
           {/* Send */}
-          <button
-            onClick={handleSend}
-            disabled={!input.trim() || loading}
-            className="flex h-8 w-8 items-center justify-center rounded-full bg-purple-600 text-white transition-all hover:bg-purple-700 disabled:bg-gray-200 disabled:text-gray-400"
-          >
-            <ArrowUp size={16} />
-          </button>
+          {loading ? (
+            <button
+              onClick={() => onStop?.()}
+              disabled={!onStop}
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-200 text-gray-600 transition-all hover:bg-gray-300 disabled:opacity-50 disabled:hover:bg-gray-200"
+              title={t('chat.stopGenerating')}
+              aria-label={t('chat.stopGenerating')}
+            >
+              <Square size={14} />
+            </button>
+          ) : (
+            <button
+              onClick={handleSend}
+              disabled={!input.trim()}
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-purple-600 text-white transition-all hover:bg-purple-700 disabled:bg-gray-200 disabled:text-gray-400"
+            >
+              <ArrowUp size={16} />
+            </button>
+          )}
         </div>
       </div>
       <p className="mt-2 text-center text-xs text-gray-400">

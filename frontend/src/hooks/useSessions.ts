@@ -136,9 +136,15 @@ export function useSessions(authReady: boolean) {
   }, []);
 
   const updateMessage = useCallback((id: string, update: Partial<Message>) => {
-    setMessages(prev =>
-      prev.map(m => (m.id === id ? { ...m, ...update } : m))
-    );
+    setMessages((prev) => {
+      let changed = false;
+      const next = prev.map((m) => {
+        if (m.id !== id) return m;
+        changed = true;
+        return { ...m, ...update };
+      });
+      return changed ? next : prev;
+    });
   }, []);
 
   return {

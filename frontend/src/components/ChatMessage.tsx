@@ -53,6 +53,10 @@ export default function ChatMessage({ role, content, model, provider, isStreamin
     );
   }
 
+  if (!isStreaming && !content.trim()) {
+    return null;
+  }
+
   return (
     <div className="flex flex-col gap-1 max-w-[85%]">
       {/* Model identifier */}

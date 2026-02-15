@@ -104,6 +104,7 @@ export async function sendStreamChat(
   onDone: () => void,
   onError: (error: string) => void,
   webSearch?: boolean,
+  signal?: AbortSignal,
 ): Promise<void> {
   const token = getToken();
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -113,6 +114,7 @@ export async function sendStreamChat(
     const res = await fetch(`${API_BASE}/ai/stream-chat`, {
       method: 'POST',
       headers,
+      signal,
       body: JSON.stringify({ message, model, sessionId, webSearch }),
     });
 
@@ -162,6 +164,10 @@ export async function sendStreamChat(
 
     onDone();
   } catch (err: any) {
+    if (err?.name === 'AbortError') {
+      onDone();
+      return;
+    }
     onError(err.message || 'Network error');
   }
 }

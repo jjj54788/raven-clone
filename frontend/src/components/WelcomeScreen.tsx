@@ -8,6 +8,7 @@ import { useLanguage } from '@/i18n/LanguageContext';
 interface WelcomeScreenProps {
   userName: string;
   onSend: (message: string, options?: { webSearch?: boolean }) => void;
+  onStop?: () => void;
   loading: boolean;
   selectedModel: AIModel | null;
   models: AIModel[];
@@ -17,7 +18,7 @@ interface WelcomeScreenProps {
 }
 
 export default function WelcomeScreen({
-  userName, onSend, loading, selectedModel, models, onSelectModel, quotedText, onClearQuote,
+  userName, onSend, onStop, loading, selectedModel, models, onSelectModel, quotedText, onClearQuote,
 }: WelcomeScreenProps) {
   const { t } = useLanguage();
 
@@ -39,6 +40,7 @@ export default function WelcomeScreen({
         </h1>
         <ChatInput
           onSend={onSend}
+          onStop={onStop}
           loading={loading}
           selectedModel={selectedModel}
           models={models}

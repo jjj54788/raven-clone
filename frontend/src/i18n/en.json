@@ -33,6 +33,8 @@
   "chat.copy": "Copy",
   "chat.copied": "Copied",
   "chat.quote": "Quote",
+  "chat.stopGenerating": "Stop generating",
+  "chat.scrollToBottom": "To bottom",
   "chat.toolsComingSoon": "Tools (Coming Soon)",
 
   "welcome.goodMorning": "Good morning",
@@ -79,5 +81,30 @@
 
   "comingSoon.title": "Coming Soon",
   "comingSoon.description": "This feature is under development. Stay tuned!",
-  "comingSoon.backToAsk": "Back to AI Ask"
+  "comingSoon.backToAsk": "Back to AI Ask",
+
+  "notifications.title": "Notifications",
+  "notifications.noneUnread": "No unread notifications",
+  "notifications.filterAll": "All",
+  "notifications.filterUnread": "Unread",
+  "notifications.markAllRead": "Mark all read",
+  "notifications.clearAll": "Clear all",
+  "notifications.emptyTitle": "You're all caught up",
+  "notifications.emptyHint": "Updates, tips, and release notes will show up here.",
+  "notifications.unread": "Unread",
+  "notifications.markRead": "Mark as read",
+
+  "whatsNew.title": "What's New",
+  "whatsNew.back": "Back",
+  "whatsNew.currentVersion": "Current version",
+  "whatsNew.releases": "releases",
+  "whatsNew.latest": "Latest",
+  "whatsNew.features": "Features",
+  "whatsNew.bugFixes": "Bug Fixes",
+  "whatsNew.improvements": "Improvements",
+  "whatsNew.breaking": "Breaking",
+
+  "checkin.reminder": "Time to clock in",
+  "checkin.button": "Clock in",
+  "checkin.done": "Clocked in today"
 }
