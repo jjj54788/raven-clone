@@ -20,6 +20,16 @@ export class SimpleChatDto {
   webSearch?: boolean;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(256)
+  apiKey?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  provider?: string;
+
+  @IsOptional()
   @IsArray()
   @ArrayMaxSize(100)
   @ValidateNested({ each: true })

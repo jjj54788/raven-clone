@@ -24,15 +24,20 @@ import { useAuth } from '@/hooks';
 import { useLanguage } from '@/i18n/LanguageContext';
 import { getUser } from '@/lib/api';
 import {
+  ExploreBookmarkItem,
   ExploreCategory,
+  exploreItems,
+  countBookmarkItemsByCategory,
   countBookmarksByCategory,
   getExploreCategoryDescription,
   getExploreCategoryLabel,
+  loadExploreBookmarkItems,
   loadExploreBookmarks,
   subscribeExploreBookmarks,
 } from '@/lib/ai-explore';
 
 type IconComponent = React.ComponentType<{ size?: number; className?: string }>;
+type BookmarkDisplayItem = ExploreBookmarkItem & { bookmarkedAt?: string };
 
 const CATEGORY_ICON: Record<ExploreCategory, IconComponent> = {
   youtube: Youtube,
@@ -52,6 +57,24 @@ const CATEGORY_BG: Record<ExploreCategory, string> = {
   news: 'bg-gradient-to-br from-sky-500 to-cyan-600',
 };
 
+const CATEGORY_PILL: Record<ExploreCategory, string> = {
+  youtube: 'border-red-200 bg-red-50 text-red-700',
+  paper: 'border-indigo-200 bg-indigo-50 text-indigo-700',
+  blog: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+  report: 'border-amber-200 bg-amber-50 text-amber-700',
+  policy: 'border-slate-200 bg-slate-100 text-slate-700',
+  news: 'border-sky-200 bg-sky-50 text-sky-700',
+};
+
+const TAG_COLORS = [
+  'border-violet-200 bg-violet-50 text-violet-700',
+  'border-rose-200 bg-rose-50 text-rose-700',
+  'border-emerald-200 bg-emerald-50 text-emerald-700',
+  'border-amber-200 bg-amber-50 text-amber-700',
+  'border-sky-200 bg-sky-50 text-sky-700',
+  'border-indigo-200 bg-indigo-50 text-indigo-700',
+];
+
 type TopTab = 'data' | 'personal' | 'team';
 type SubTab = 'overview' | 'bookmarks' | 'notes' | 'images' | 'notion' | 'drive';
 
@@ -64,6 +87,51 @@ function pillClass(active: boolean): string {
   ].join(' ');
 }
 
+function hashTag(value: string): number {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = (hash * 31 + value.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash);
+}
+
+function tagClass(tag: string): string {
+  if (!tag) return TAG_COLORS[0];
+  const index = hashTag(tag) % TAG_COLORS.length;
+  return TAG_COLORS[index];
+}
+
+function safeUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    if (u.protocol === 'http:' || u.protocol === 'https:') return u.toString();
+    return '';
+  } catch {
+    return '';
+  }
+}
+
+function getDomain(url: string): string {
+  try {
+    const host = new URL(url).hostname;
+    return host.replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+}
+
+function formatDate(value: string, locale: 'en' | 'zh'): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  if (locale === 'zh') {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
 export default function MyLibraryPage() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const { userName, authReady } = useAuth();
@@ -73,6 +141,7 @@ export default function MyLibraryPage() {
   const [subTab, setSubTab] = useState<SubTab>('overview');
   const [userId, setUserId] = useState<string | null>(null);
   const [bookmarks, setBookmarks] = useState<string[]>([]);
+  const [bookmarkItems, setBookmarkItems] = useState<ExploreBookmarkItem[]>([]);
 
   useEffect(() => {
     if (!authReady) return;
@@ -81,12 +150,45 @@ export default function MyLibraryPage() {
 
   useEffect(() => {
     if (!authReady) return () => {};
-    const refresh = () => setBookmarks(loadExploreBookmarks(userId));
+    const refresh = () => {
+      setBookmarks(loadExploreBookmarks(userId));
+      setBookmarkItems(loadExploreBookmarkItems(userId));
+    };
     refresh();
     return subscribeExploreBookmarks(refresh);
   }, [authReady, userId]);
 
-  const counts = useMemo(() => countBookmarksByCategory(bookmarks), [bookmarks]);
+  const counts = useMemo(() => {
+    if (bookmarkItems.length > 0) {
+      return countBookmarkItemsByCategory(bookmarkItems);
+    }
+    return countBookmarksByCategory(bookmarks);
+  }, [bookmarkItems, bookmarks]);
+
+  const exploreItemMap = useMemo(() => {
+    const map = new Map<string, ExploreBookmarkItem>();
+    exploreItems.forEach((item) => {
+      map.set(item.id, { ...item, bookmarkedAt: '' });
+    });
+    return map;
+  }, []);
+
+  const resolvedBookmarks = useMemo<BookmarkDisplayItem[]>(() => {
+    if (bookmarkItems.length > 0) return bookmarkItems;
+    return bookmarks
+      .map((id) => exploreItemMap.get(id))
+      .filter((item): item is ExploreBookmarkItem => Boolean(item));
+  }, [bookmarkItems, bookmarks, exploreItemMap]);
+
+  const sortedBookmarks = useMemo(() => {
+    const items = [...resolvedBookmarks];
+    return items.sort((a, b) => {
+      const aTime = new Date(a.bookmarkedAt || a.publishedAt).getTime();
+      const bTime = new Date(b.bookmarkedAt || b.publishedAt).getTime();
+      if (!Number.isFinite(aTime) || !Number.isFinite(bTime)) return 0;
+      return bTime - aTime;
+    });
+  }, [resolvedBookmarks]);
 
   const uiText = useMemo(() => {
     if (locale === 'zh') {
@@ -111,6 +213,7 @@ export default function MyLibraryPage() {
           dataSources: '数据源概览',
           platform: '平台内数据',
           explore: 'AI探索栏目',
+          bookmarks: '书签内容',
           usage: '如何使用数据源？',
         },
         actions: {
@@ -124,6 +227,7 @@ export default function MyLibraryPage() {
         hints: {
           explore: '来自 AI 探索的收藏会显示在这里',
           emptyTab: '该栏目内容即将上线',
+          noBookmarks: '暂无书签',
         },
         platformCards: {
           bookmarks: { title: '书签', desc: '点击浏览' },
@@ -160,6 +264,7 @@ export default function MyLibraryPage() {
         dataSources: 'Data Sources Overview',
         platform: 'Platform Data',
         explore: 'AI Explore Channels',
+        bookmarks: 'Bookmarked Items',
         usage: 'How to use data sources?',
       },
       actions: {
@@ -173,6 +278,7 @@ export default function MyLibraryPage() {
       hints: {
         explore: 'Bookmarks from AI Explore show up here',
         emptyTab: 'This section is coming soon',
+        noBookmarks: 'No bookmarks yet',
       },
       platformCards: {
         bookmarks: { title: 'Bookmarks', desc: 'View items' },
@@ -251,6 +357,9 @@ export default function MyLibraryPage() {
       icon: Link2,
     },
   ]), [uiText.platformCards]);
+
+  const showOverview = subTab === 'overview';
+  const showBookmarks = subTab === 'bookmarks' || subTab === 'overview';
 
   if (!authReady) {
     return (

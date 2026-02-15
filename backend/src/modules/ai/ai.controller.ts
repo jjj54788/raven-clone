@@ -63,14 +63,18 @@ export class AiController {
     @Body() body: SimpleChatDto,
     @CurrentUser() userId: string,
   ) {
+    const apiKey = body.apiKey?.trim();
+    const provider = body.provider?.trim();
     const defaultModel = this.aiService.getDefaultModel();
-    if (!defaultModel) {
-      throw new ServiceUnavailableException('No AI API Key configured. Add keys to backend/.env');
+    let selectedModel = body.model ? this.aiService.getModelById(body.model) : undefined;
+
+    if (!selectedModel && apiKey) {
+      selectedModel = this.aiService.buildUserModel({ modelId: body.model, provider, apiKey }) || defaultModel;
     }
 
-    const selectedModel = body.model
-      ? this.aiService.getModelById(body.model) || defaultModel
-      : defaultModel;
+    if (!selectedModel) {
+      throw new ServiceUnavailableException('No AI API Key configured. Add keys to backend/.env or provide your own API key.');
+    }
 
     this.aiUsageService.assertChatRateLimit(userId, { webSearch: body.webSearch });
 
@@ -78,8 +82,9 @@ export class AiController {
       ? await this.aiService.loadSessionHistory(body.sessionId, userId)
       : null;
 
-    const cost = this.aiUsageService.getChatCreditCost({ webSearch: body.webSearch });
-    const creditsRemaining = await this.aiUsageService.consumeCreditsOrThrow(userId, cost);
+    const useOwnKey = !!apiKey;
+    const cost = useOwnKey ? 0 : this.aiUsageService.getChatCreditCost({ webSearch: body.webSearch });
+    const creditsRemaining = cost > 0 ? await this.aiUsageService.consumeCreditsOrThrow(userId, cost) : null;
 
     // Web search if enabled
     let systemPrompt = getDefaultSystemPrompt();
@@ -103,7 +108,7 @@ export class AiController {
 
     msgs.push({ role: 'user', content: body.message });
 
-    const content = await this.aiService.chat(selectedModel, msgs);
+    const content = await this.aiService.chat(selectedModel, msgs, apiKey);
 
     // Save messages to database if session exists
     if (body.sessionId) {
@@ -138,14 +143,18 @@ export class AiController {
       }),
     );
 
+    const apiKey = body.apiKey?.trim();
+    const provider = body.provider?.trim();
     const defaultModel = this.aiService.getDefaultModel();
-    if (!defaultModel) {
-      throw new ServiceUnavailableException('No AI API Key configured. Add keys to backend/.env');
+    let selectedModel = body.model ? this.aiService.getModelById(body.model) : undefined;
+
+    if (!selectedModel && apiKey) {
+      selectedModel = this.aiService.buildUserModel({ modelId: body.model, provider, apiKey }) || defaultModel;
     }
 
-    const selectedModel = body.model
-      ? this.aiService.getModelById(body.model) || defaultModel
-      : defaultModel;
+    if (!selectedModel) {
+      throw new ServiceUnavailableException('No AI API Key configured. Add keys to backend/.env or provide your own API key.');
+    }
 
     this.aiUsageService.assertChatRateLimit(userId, { webSearch: body.webSearch });
     const release = this.aiUsageService.reserveStreamSlot(userId);
@@ -165,8 +174,11 @@ export class AiController {
         ? await this.aiService.loadSessionHistory(body.sessionId, userId)
         : null;
 
-      const cost = this.aiUsageService.getChatCreditCost({ webSearch: body.webSearch });
-      await this.aiUsageService.consumeCreditsOrThrow(userId, cost);
+      const useOwnKey = !!apiKey;
+      const cost = useOwnKey ? 0 : this.aiUsageService.getChatCreditCost({ webSearch: body.webSearch });
+      if (cost > 0) {
+        await this.aiUsageService.consumeCreditsOrThrow(userId, cost);
+      }
 
     // Web search if enabled
     let systemPrompt = getDefaultSystemPrompt();
@@ -197,7 +209,7 @@ export class AiController {
     res.flushHeaders();
 
     try {
-      const fullContent = await this.aiService.chatStream(selectedModel, msgs, res);
+      const fullContent = await this.aiService.chatStream(selectedModel, msgs, res, apiKey);
       debugLog(`[stream-chat] Stream complete, content length: ${fullContent.length}`);
 
       // Save messages to database if session exists

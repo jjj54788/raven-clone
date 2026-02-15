@@ -241,10 +241,10 @@ export async function getModels() {
   return apiFetch('/ai/models');
 }
 
-export async function sendChat(message: string, model?: string, sessionId?: string) {
+export async function sendChat(message: string, model?: string, sessionId?: string, apiKey?: string, provider?: string) {
   return apiFetch('/ai/simple-chat', {
     method: 'POST',
-    body: JSON.stringify({ message, model, sessionId }),
+    body: JSON.stringify({ message, model, sessionId, apiKey, provider }),
   });
 }
 
@@ -260,6 +260,8 @@ export async function sendStreamChat(
   onError: (error: string) => void,
   webSearch?: boolean,
   signal?: AbortSignal,
+  apiKey?: string,
+  provider?: string,
 ): Promise<void> {
   const token = getToken();
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -270,7 +272,7 @@ export async function sendStreamChat(
       method: 'POST',
       headers,
       signal,
-      body: JSON.stringify({ message, model, sessionId, webSearch }),
+      body: JSON.stringify({ message, model, sessionId, webSearch, apiKey, provider }),
     });
 
     if (res.status === 401) {
@@ -375,7 +377,12 @@ export async function getYoutubeExplore(params?: {
   if (params?.maxResults) qp.set('maxResults', String(params.maxResults));
   if (params?.pageToken) qp.set('pageToken', params.pageToken);
   const qs = qp.toString();
-  return apiFetch(`/explore/youtube${qs ? `?${qs}` : ''}`);
+  const data = await apiFetch(`/explore/youtube${qs ? `?${qs}` : ''}`);
+  if (data && typeof data === 'object' && 'statusCode' in data && !('items' in data)) {
+    const message = typeof data.message === 'string' ? data.message : 'YouTube data is unavailable';
+    throw new Error(message);
+  }
+  return data as YoutubeExploreResponse;
 }
 
 // ---- Sessions ----

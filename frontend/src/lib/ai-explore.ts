@@ -18,6 +18,10 @@ export type ExploreItem = {
   thumbnailUrl?: string;
 };
 
+export type ExploreBookmarkItem = ExploreItem & {
+  bookmarkedAt: string;
+};
+
 export const exploreCategoryMeta: Record<
   ExploreCategory,
   { label: LocalizedText; description: LocalizedText }
@@ -266,12 +270,17 @@ export const exploreItems: ExploreItem[] = [
 ];
 
 const STORAGE_PREFIX = 'raven_ai_explore_bookmarks';
+const BOOKMARK_ITEMS_PREFIX = 'raven_ai_explore_bookmark_items';
 const EVENT_NAME = 'raven:ai-explore-bookmarks';
 const KEYWORDS_PREFIX = 'raven_ai_explore_keywords';
 const KEYWORDS_EVENT = 'raven:ai-explore-keywords';
 
 function storageKey(userId?: string | null): string {
   return `${STORAGE_PREFIX}_${userId || 'guest'}`;
+}
+
+function itemsKey(userId?: string | null): string {
+  return `${BOOKMARK_ITEMS_PREFIX}_${userId || 'guest'}`;
 }
 
 function keywordsKey(userId?: string | null): string {
@@ -287,6 +296,53 @@ function normalizeBookmarks(value: unknown): string[] {
     }
   }
   return Array.from(unique);
+}
+
+function normalizeBookmarkItem(value: any): ExploreBookmarkItem | null {
+  if (!value || typeof value !== 'object') return null;
+  const id = typeof value.id === 'string' ? value.id.trim() : '';
+  if (!id) return null;
+  if (!isExploreCategory(value.category)) return null;
+  const title =
+    value.title && typeof value.title === 'object'
+      ? { en: String(value.title.en || ''), zh: String(value.title.zh || '') }
+      : { en: String(value.title || ''), zh: String(value.title || '') };
+  const summary =
+    value.summary && typeof value.summary === 'object'
+      ? { en: String(value.summary.en || ''), zh: String(value.summary.zh || '') }
+      : { en: String(value.summary || ''), zh: String(value.summary || '') };
+  const source = typeof value.source === 'string' ? value.source.trim() : '';
+  const url = typeof value.url === 'string' ? value.url.trim() : '';
+  const publishedAt = typeof value.publishedAt === 'string' ? value.publishedAt.trim() : '';
+  const tags = Array.isArray(value.tags) ? value.tags.filter((tag) => typeof tag === 'string') : [];
+  const channel = typeof value.channel === 'string' ? value.channel.trim() : undefined;
+  const thumbnailUrl = typeof value.thumbnailUrl === 'string' ? value.thumbnailUrl.trim() : undefined;
+  const bookmarkedAt = typeof value.bookmarkedAt === 'string' && value.bookmarkedAt
+    ? value.bookmarkedAt
+    : new Date().toISOString();
+  return {
+    id,
+    category: value.category,
+    title,
+    summary,
+    source,
+    url,
+    publishedAt,
+    tags,
+    channel,
+    thumbnailUrl,
+    bookmarkedAt,
+  };
+}
+
+function normalizeBookmarkItems(value: unknown): ExploreBookmarkItem[] {
+  if (!Array.isArray(value)) return [];
+  const unique = new Map<string, ExploreBookmarkItem>();
+  for (const item of value) {
+    const normalized = normalizeBookmarkItem(item);
+    if (normalized) unique.set(normalized.id, normalized);
+  }
+  return Array.from(unique.values());
 }
 
 function normalizeKeywords(value: unknown): string[] {
@@ -313,6 +369,49 @@ export function loadExploreBookmarks(userId?: string | null): string[] {
   }
 }
 
+export function loadExploreBookmarkItems(userId?: string | null): ExploreBookmarkItem[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(itemsKey(userId));
+    if (!raw) return [];
+    return normalizeBookmarkItems(JSON.parse(raw));
+  } catch {
+    return [];
+  }
+}
+
+export function saveExploreBookmarkItems(
+  userId: string | null | undefined,
+  items: ExploreBookmarkItem[],
+): ExploreBookmarkItem[] {
+  if (typeof window === 'undefined') return [];
+  const normalized = normalizeBookmarkItems(items);
+  window.localStorage.setItem(itemsKey(userId), JSON.stringify(normalized));
+  emitExploreBookmarksChanged();
+  return normalized;
+}
+
+export function upsertExploreBookmarkItem(
+  userId: string | null | undefined,
+  item: ExploreItem,
+): ExploreBookmarkItem[] {
+  const current = loadExploreBookmarkItems(userId);
+  const existing = current.find((entry) => entry.id === item.id);
+  const bookmarkedAt = existing?.bookmarkedAt || new Date().toISOString();
+  const next: ExploreBookmarkItem = { ...item, bookmarkedAt };
+  const filtered = current.filter((entry) => entry.id !== item.id);
+  return saveExploreBookmarkItems(userId, [next, ...filtered]);
+}
+
+export function removeExploreBookmarkItem(
+  userId: string | null | undefined,
+  itemId: string,
+): ExploreBookmarkItem[] {
+  const current = loadExploreBookmarkItems(userId);
+  const next = current.filter((entry) => entry.id !== itemId);
+  return saveExploreBookmarkItems(userId, next);
+}
+
 export function saveExploreBookmarks(userId: string | null | undefined, items: string[]): string[] {
   if (typeof window === 'undefined') return [];
   const normalized = normalizeBookmarks(items);
@@ -321,13 +420,21 @@ export function saveExploreBookmarks(userId: string | null | undefined, items: s
   return normalized;
 }
 
-export function toggleExploreBookmark(userId: string | null | undefined, itemId: string): string[] {
+export function toggleExploreBookmark(
+  userId: string | null | undefined,
+  itemId: string,
+  item?: ExploreItem,
+): string[] {
   const current = loadExploreBookmarks(userId);
   const set = new Set(current);
   if (set.has(itemId)) {
     set.delete(itemId);
+    removeExploreBookmarkItem(userId, itemId);
   } else {
     set.add(itemId);
+    if (item) {
+      upsertExploreBookmarkItem(userId, item);
+    }
   }
   return saveExploreBookmarks(userId, Array.from(set));
 }
@@ -340,7 +447,7 @@ export function emitExploreBookmarksChanged() {
 export function subscribeExploreBookmarks(cb: () => void) {
   if (typeof window === 'undefined') return () => {};
   const onStorage = (event: StorageEvent) => {
-    if (event.key && event.key.startsWith(STORAGE_PREFIX)) {
+    if (event.key && (event.key.startsWith(STORAGE_PREFIX) || event.key.startsWith(BOOKMARK_ITEMS_PREFIX))) {
       cb();
     }
   };
@@ -436,6 +543,23 @@ export function countBookmarksByCategory(bookmarks: string[]): Record<ExploreCat
   const set = new Set(bookmarks);
   for (const item of exploreItems) {
     if (set.has(item.id)) {
+      counts[item.category] += 1;
+    }
+  }
+  return counts;
+}
+
+export function countBookmarkItemsByCategory(items: ExploreBookmarkItem[]): Record<ExploreCategory, number> {
+  const counts: Record<ExploreCategory, number> = {
+    youtube: 0,
+    paper: 0,
+    blog: 0,
+    report: 0,
+    policy: 0,
+    news: 0,
+  };
+  for (const item of items) {
+    if (isExploreCategory(item.category)) {
       counts[item.category] += 1;
     }
   }

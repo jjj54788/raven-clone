@@ -7,6 +7,7 @@ import ChatArea from '@/components/ChatArea';
 import WelcomeScreen from '@/components/WelcomeScreen';
 import { useAuth, useModels, useSessions } from '@/hooks';
 import { sendStreamChat, createSession } from '@/lib/api';
+import { getModelKey } from '@/lib/teams';
 
 export default function Home() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -118,6 +119,9 @@ export default function Home() {
       streamAbortRef.current = controller;
 
       // Step 3: Stream chat
+      const provider = selectedModel?.provider;
+      const apiKey = provider ? getModelKey(provider) ?? undefined : undefined;
+
       await sendStreamChat(
         message,
         selectedModel?.id,
@@ -162,6 +166,10 @@ export default function Home() {
         options?.webSearch,
         // signal
         controller.signal,
+        // apiKey
+        apiKey,
+        // provider
+        provider,
       );
     } catch (err: unknown) {
       if (runId !== sendRunIdRef.current) return;

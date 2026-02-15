@@ -16,6 +16,12 @@ export interface ModelConfig {
 @Injectable()
 export class AiService implements OnModuleInit {
   private readonly models: ModelConfig[] = [];
+  private readonly providerDefaultModels: Record<string, string> = {
+    openai: 'gpt-4.1-mini',
+    deepseek: 'deepseek-chat',
+    google: 'gemini-2.5-flash',
+    gemini: 'gemini-2.5-flash',
+  };
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -70,8 +76,67 @@ export class AiService implements OnModuleInit {
     return this.models[0];
   }
 
-  private async callGemini(modelId: string, msgs: Array<{ role: string; content: string }>): Promise<string> {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${process.env.GOOGLE_AI_API_KEY}`;
+  private normalizeProvider(provider?: string): string | null {
+    if (!provider) return null;
+    const normalized = provider.trim().toLowerCase();
+    if (!normalized) return null;
+    const allowed = new Set(['openai', 'deepseek', 'google', 'gemini']);
+    if (!allowed.has(normalized)) return null;
+    if (normalized === 'gemini') return 'google';
+    return normalized;
+  }
+
+  private providerLabel(provider: string): string {
+    const normalized = this.normalizeProvider(provider);
+    if (!normalized) return 'OpenAI';
+    if (normalized === 'deepseek') return 'DeepSeek';
+    if (normalized === 'google') return 'Google';
+    return 'OpenAI';
+  }
+
+  private buildOpenAiClient(provider: string, apiKey: string): OpenAI | null {
+    const normalized = this.normalizeProvider(provider);
+    if (!normalized) return null;
+    if (normalized === 'google') return null;
+    if (normalized === 'deepseek') {
+      return new OpenAI({ apiKey, baseURL: 'https://api.deepseek.com/v1' });
+    }
+    return new OpenAI({ apiKey });
+  }
+
+  buildUserModel(opts: { modelId?: string; provider?: string; apiKey: string }): ModelConfig | null {
+    const normalized = this.normalizeProvider(opts.provider);
+    if (!normalized) return null;
+    const modelId = (opts.modelId?.trim() || this.providerDefaultModels[normalized])?.trim();
+    if (!modelId) return null;
+
+    if (normalized === 'google') {
+      return {
+        id: modelId,
+        name: modelId,
+        provider: this.providerLabel(normalized),
+        client: 'gemini',
+        modelId,
+      };
+    }
+
+    const client = this.buildOpenAiClient(normalized, opts.apiKey);
+    if (!client) return null;
+    return {
+      id: modelId,
+      name: modelId,
+      provider: this.providerLabel(normalized),
+      client,
+      modelId,
+    };
+  }
+
+  private async callGemini(modelId: string, msgs: Array<{ role: string; content: string }>, apiKey?: string): Promise<string> {
+    const key = apiKey?.trim() || process.env.GOOGLE_AI_API_KEY;
+    if (!key) {
+      return 'Gemini API key is not configured';
+    }
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${key}`;
     const contents = msgs.filter(m => m.role !== 'system').map(m => ({
       role: m.role === 'assistant' ? 'model' : 'user',
       parts: [{ text: m.content }],
@@ -92,12 +157,16 @@ export class AiService implements OnModuleInit {
   async chat(
     model: ModelConfig,
     messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
+    apiKey?: string,
   ): Promise<string> {
     if (model.client === 'gemini') {
-      return this.callGemini(model.modelId, messages);
+      return this.callGemini(model.modelId, messages, apiKey);
     }
 
-    const response = await model.client.chat.completions.create({
+    const overrideClient = apiKey ? this.buildOpenAiClient(model.provider, apiKey) : null;
+    const client = overrideClient ?? model.client;
+
+    const response = await client.chat.completions.create({
       model: model.modelId,
       messages,
       temperature: 0.7,
@@ -113,6 +182,7 @@ export class AiService implements OnModuleInit {
     model: ModelConfig,
     messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
     res: Response,
+    apiKey?: string,
   ): Promise<string> {
     if (!res.headersSent) {
       res.setHeader('Content-Type', 'text/event-stream');
@@ -126,7 +196,7 @@ export class AiService implements OnModuleInit {
 
     if (model.client === 'gemini') {
       // Gemini doesn't support streaming via OpenAI SDK, fall back to non-stream
-      fullContent = await this.callGemini(model.modelId, messages);
+      fullContent = await this.callGemini(model.modelId, messages, apiKey);
       res.write(`data: ${JSON.stringify({ content: fullContent, done: false })}\n\n`);
       res.write(`data: ${JSON.stringify({ content: '', done: true })}\n\n`);
       res.end();
@@ -134,7 +204,9 @@ export class AiService implements OnModuleInit {
     }
 
     try {
-      const stream = await model.client.chat.completions.create({
+      const overrideClient = apiKey ? this.buildOpenAiClient(model.provider, apiKey) : null;
+      const client = overrideClient ?? model.client;
+      const stream = await client.chat.completions.create({
         model: model.modelId,
         messages,
         temperature: 0.7,

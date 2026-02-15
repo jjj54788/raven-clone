@@ -133,6 +133,7 @@ function AiExploreClient() {
   const [youtubeLoadingMore, setYoutubeLoadingMore] = useState(false);
   const [youtubeError, setYoutubeError] = useState<string | null>(null);
   const [nextPageToken, setNextPageToken] = useState<string | null>(null);
+  const [usingFallback, setUsingFallback] = useState(false);
   const [showBackTop, setShowBackTop] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
@@ -184,6 +185,7 @@ function AiExploreClient() {
         youtubeMore: '加载更多',
         youtubeNoMore: '没有更多结果了',
         youtubeLoadingMore: '正在加载更多...',
+        youtubeFallback: '当前显示示例数据，请稍后重试',
         loadedCount: (count: number) => `已加载 ${count} 条`,
         backToTop: '回到顶部',
       };
@@ -207,10 +209,16 @@ function AiExploreClient() {
       youtubeMore: 'Load more',
       youtubeNoMore: 'No more results',
       youtubeLoadingMore: 'Loading more...',
+      youtubeFallback: 'Showing sample data for now. Please try again later.',
       loadedCount: (count: number) => `Loaded ${count} items`,
       backToTop: 'Back to top',
     };
   }, [locale]);
+
+  const fallbackYoutubeItems = useMemo(
+    () => exploreItems.filter((item) => item.category === 'youtube'),
+    [],
+  );
 
   const toggleKeyword = (keyword: string) => {
     setActiveKeywords((prev) => {
@@ -264,11 +272,13 @@ function AiExploreClient() {
         }));
         setYoutubeItems(mapped);
         setNextPageToken(data?.nextPageToken ?? null);
+        setUsingFallback(false);
       } catch (err: any) {
         if (cancelled) return;
         setYoutubeError(err?.message || uiText.youtubeError);
-        setYoutubeItems([]);
+        setYoutubeItems(fallbackYoutubeItems);
         setNextPageToken(null);
+        setUsingFallback(true);
       } finally {
         if (!cancelled) setYoutubeLoading(false);
       }
@@ -278,7 +288,7 @@ function AiExploreClient() {
       cancelled = true;
       window.clearTimeout(handle);
     };
-  }, [authReady, tab, search, activeKeywords, sortBy, uiText.youtubeError]);
+  }, [authReady, tab, search, activeKeywords, sortBy, uiText.youtubeError, fallbackYoutubeItems]);
 
   const handleLoadMore = useCallback(async () => {
     if (youtubeLoading || youtubeLoadingMore || !nextPageToken) return;
@@ -344,7 +354,28 @@ function AiExploreClient() {
 
   const filtered = useMemo(() => {
     if (tab === 'youtube') {
-      const sorted = [...youtubeItems].sort((a, b) => {
+      let items = [...youtubeItems];
+      if (usingFallback) {
+        const q = search.trim().toLowerCase();
+        const keywordSet = new Set(activeKeywords.map((keyword) => keyword.toLowerCase()));
+        items = items.filter((item) => {
+          if (q) {
+            const hay = [
+              item.title.en,
+              item.title.zh,
+              item.summary.en,
+              item.summary.zh,
+              item.source,
+              item.tags.join(' '),
+              item.channel || '',
+            ].join(' ').toLowerCase();
+            if (!hay.includes(q)) return false;
+          }
+          if (keywordSet.size === 0) return true;
+          return item.tags.some((tag) => keywordSet.has(tag.toLowerCase()));
+        });
+      }
+      const sorted = items.sort((a, b) => {
         const aTime = new Date(a.publishedAt).getTime();
         const bTime = new Date(b.publishedAt).getTime();
         if (!Number.isFinite(aTime) || !Number.isFinite(bTime)) return 0;
@@ -368,7 +399,7 @@ function AiExploreClient() {
     });
 
     return items;
-  }, [search, tab, youtubeItems, sortBy]);
+  }, [search, tab, youtubeItems, sortBy, usingFallback, activeKeywords]);
 
   if (!authReady) {
     return (
@@ -506,14 +537,19 @@ function AiExploreClient() {
 
         <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-6 sm:px-8">
           <div className="mx-auto w-full max-w-6xl">
-            {tab === 'youtube' && youtubeError ? (
+            {tab === 'youtube' && youtubeError && !usingFallback ? (
               <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
                 {youtubeError}
               </div>
             ) : null}
+            {tab === 'youtube' && usingFallback ? (
+              <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                {uiText.youtubeFallback}
+              </div>
+            ) : null}
             {tab === 'youtube' && filtered.length > 0 ? (
               <div className="mb-3 flex items-center justify-between text-xs text-gray-500">
-                <span>{uiText.loadedCount(youtubeItems.length)}</span>
+                <span>{uiText.loadedCount(filtered.length)}</span>
                 {youtubeLoadingMore && <span>{uiText.youtubeLoadingMore}</span>}
               </div>
             ) : null}
@@ -581,7 +617,7 @@ function AiExploreClient() {
                             </div>
                             <button
                               type="button"
-                              onClick={() => setBookmarks(toggleExploreBookmark(userId, item.id))}
+                              onClick={() => setBookmarks(toggleExploreBookmark(userId, item.id, item))}
                               className={[
                                 'inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs font-medium transition-colors',
                                 isBookmarked

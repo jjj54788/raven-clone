@@ -16,5 +16,14 @@ export class StreamChatDto {
   @IsOptional()
   @IsBoolean()
   webSearch?: boolean;
-}
 
+  @IsOptional()
+  @IsString()
+  @MaxLength(256)
+  apiKey?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  provider?: string;
+}
