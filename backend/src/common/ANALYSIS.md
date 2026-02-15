@@ -40,6 +40,7 @@ decorators/current-user.decorator.ts
 filters/
 filters/http-exception.filter.ts
 guards/
+guards/admin.guard.ts
 guards/jwt-auth.guard.ts
 ```
 <!-- AUTO-GENERATED:END -->

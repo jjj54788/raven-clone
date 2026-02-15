@@ -15,13 +15,22 @@ export function clearToken() {
   localStorage.removeItem('raven_user');
 }
 
-export function getUser(): { id: string; name: string; email: string; credits: number } | null {
+export type RavenUser = {
+  id: string;
+  name: string;
+  email: string;
+  credits: number;
+  isAdmin?: boolean;
+  avatarUrl?: string | null;
+};
+
+export function getUser(): RavenUser | null {
   if (typeof window === 'undefined') return null;
   const raw = localStorage.getItem('raven_user');
   return raw ? JSON.parse(raw) : null;
 }
 
-export function setUser(user: any) {
+export function setUser(user: RavenUser) {
   localStorage.setItem('raven_user', JSON.stringify(user));
 }
 
@@ -81,6 +90,100 @@ export async function getMe() {
   return apiFetch('/auth/me');
 }
 
+// ---- Admin ----
+export async function adminGetAuthSettings() {
+  return apiFetch('/admin/auth/settings');
+}
+
+export async function adminSetInviteOnly(inviteOnly: boolean) {
+  return apiFetch('/admin/auth/settings', {
+    method: 'PATCH',
+    body: JSON.stringify({ inviteOnly }),
+  });
+}
+
+export async function adminListAllowlistEmails() {
+  return apiFetch('/admin/auth/allowlist');
+}
+
+export async function adminAddAllowlistEmail(email: string, note?: string) {
+  return apiFetch('/admin/auth/allowlist', {
+    method: 'POST',
+    body: JSON.stringify({ email, note }),
+  });
+}
+
+export async function adminDeleteAllowlistEmail(id: string) {
+  return apiFetch(`/admin/auth/allowlist/${id}`, { method: 'DELETE' });
+}
+
+export async function adminListUsers(q?: string) {
+  const qs = q?.trim() ? `?q=${encodeURIComponent(q.trim())}` : '';
+  return apiFetch(`/admin/users${qs}`);
+}
+
+export async function adminSetUserAdmin(userId: string, isAdmin: boolean) {
+  return apiFetch(`/admin/users/${userId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ isAdmin }),
+  });
+}
+
+// ---- Store ----
+export type StoreItemType = 'tool' | 'skill';
+export type StoreItemSource = 'curated' | 'github' | 'internal' | 'custom';
+export type StoreItemPricing = 'free' | 'freemium' | 'paid' | 'open_source';
+
+export interface StoreItem {
+  id: string;
+  ownerUserId?: string;
+  type: StoreItemType;
+  source: StoreItemSource;
+  name: string;
+  description: string;
+  url: string;
+  iconText?: string;
+  rating?: number;
+  usersText?: string;
+  pricing?: StoreItemPricing;
+  featured?: boolean;
+  categories: string[];
+  tags: string[];
+  links?: Array<{ label: string; url: string }>;
+  trialNotesMarkdown?: string;
+  recommendReasons?: string[];
+  githubRepoUrl?: string;
+  githubStars?: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export async function getStoreItems(): Promise<StoreItem[]> {
+  return apiFetch('/store/items');
+}
+
+export async function createCustomStoreItem(payload: {
+  type: StoreItemType;
+  name: string;
+  description: string;
+  url: string;
+  iconText?: string;
+  pricing?: StoreItemPricing;
+  categories?: string[];
+  tags?: string[];
+  trialNotesMarkdown?: string;
+  recommendReasons?: string[];
+}): Promise<StoreItem> {
+  return apiFetch('/store/custom-items', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteCustomStoreItem(id: string) {
+  return apiFetch(`/store/custom-items/${id}`, { method: 'DELETE' });
+}
+
 // ---- AI ----
 export async function getModels() {
   return apiFetch('/ai/models');
@@ -118,8 +221,25 @@ export async function sendStreamChat(
       body: JSON.stringify({ message, model, sessionId, webSearch }),
     });
 
+    if (res.status === 401) {
+      clearToken();
+      if (typeof window !== 'undefined') window.location.href = '/login';
+      onError('Unauthorized');
+      return;
+    }
+
     if (!res.ok) {
-      onError(`HTTP ${res.status}`);
+      let errorMessage = `HTTP ${res.status}`;
+      try {
+        const data = await res.json();
+        const msg = (data as any)?.message;
+        if (msg) {
+          errorMessage = Array.isArray(msg) ? msg.join('; ') : String(msg);
+        }
+      } catch {
+        // ignore
+      }
+      onError(errorMessage);
       return;
     }
 
@@ -187,4 +307,103 @@ export async function getSessionMessages(sessionId: string) {
 
 export async function deleteSession(sessionId: string) {
   return apiFetch(`/ask/sessions/${sessionId}`, { method: 'DELETE' });
+}
+
+// ---- Todos ----
+export type TodoStatus = 'TODO' | 'IN_PROGRESS' | 'DONE' | 'ARCHIVED';
+
+export interface TodoList {
+  id: string;
+  name: string;
+  color?: string | null;
+  isInbox: boolean;
+  createdAt: string;
+  updatedAt: string;
+  _count?: { tasks: number };
+}
+
+export interface TodoTask {
+  id: string;
+  title: string;
+  description?: string | null;
+  status: TodoStatus;
+  priority: number;
+  dueAt?: string | null;
+  completedAt?: string | null;
+  position: number;
+  createdAt: string;
+  updatedAt: string;
+  list: Pick<TodoList, 'id' | 'name' | 'color' | 'isInbox'>;
+}
+
+export interface TodoOverview {
+  openCount: number;
+  topTasks: TodoTask[];
+}
+
+export async function getTodoOverview(): Promise<TodoOverview> {
+  return apiFetch('/todos/overview');
+}
+
+export async function listTodoLists(): Promise<TodoList[]> {
+  return apiFetch('/todos/lists');
+}
+
+export async function createTodoList(payload: { name: string; color?: string }): Promise<TodoList> {
+  return apiFetch('/todos/lists', { method: 'POST', body: JSON.stringify(payload) });
+}
+
+export async function updateTodoList(id: string, payload: { name?: string; color?: string | null }): Promise<TodoList> {
+  return apiFetch(`/todos/lists/${id}`, { method: 'PATCH', body: JSON.stringify(payload) });
+}
+
+export async function deleteTodoList(id: string): Promise<{ message: string }> {
+  return apiFetch(`/todos/lists/${id}`, { method: 'DELETE' });
+}
+
+export async function listTodoTasks(params?: {
+  listId?: string;
+  status?: 'open' | 'done' | 'all' | 'archived';
+  q?: string;
+  take?: number;
+  dueAfter?: string;
+  dueBefore?: string;
+}): Promise<TodoTask[]> {
+  const qp = new URLSearchParams();
+  if (params?.listId) qp.set('listId', params.listId);
+  if (params?.status) qp.set('status', params.status);
+  if (params?.q) qp.set('q', params.q);
+  if (params?.take) qp.set('take', String(params.take));
+  if (params?.dueAfter) qp.set('dueAfter', params.dueAfter);
+  if (params?.dueBefore) qp.set('dueBefore', params.dueBefore);
+  const qs = qp.toString();
+  return apiFetch(`/todos/tasks${qs ? `?${qs}` : ''}`);
+}
+
+export async function createTodoTask(payload: {
+  title: string;
+  description?: string;
+  listId?: string;
+  priority?: number;
+  dueAt?: string;
+}): Promise<TodoTask> {
+  return apiFetch('/todos/tasks', { method: 'POST', body: JSON.stringify(payload) });
+}
+
+export async function updateTodoTask(
+  id: string,
+  payload: {
+    title?: string;
+    description?: string | null;
+    status?: TodoStatus;
+    priority?: number;
+    dueAt?: string | null;
+    listId?: string;
+  },
+): Promise<TodoTask> {
+  return apiFetch(`/todos/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(payload) });
+}
+
+export async function deleteTodoTask(id: string): Promise<{ message: string }> {
+  return apiFetch(`/todos/tasks/${id}`, { method: 'DELETE' });
 }

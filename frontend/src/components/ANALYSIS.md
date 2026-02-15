@@ -49,6 +49,8 @@ ChatMessage.tsx
 DailyCheckInReminder.tsx
 QuoteFooter.tsx
 Sidebar.tsx
+TodoTaskDrawer.tsx
+TodoWidget.tsx
 WelcomeScreen.tsx
 ```
 <!-- AUTO-GENERATED:END -->

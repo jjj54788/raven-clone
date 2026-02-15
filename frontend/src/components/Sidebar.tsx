@@ -6,13 +6,14 @@ import { usePathname } from 'next/navigation';
 import {
   Settings, Search, BookOpen, Eye, FlaskConical,
   FileText, Users, Target, LayoutGrid, PenTool,
-  Store, Bell, Globe, ChevronLeft, ChevronRight, Monitor, Menu, LogOut,
+  Store, Bell, Globe, ChevronLeft, ChevronRight, Monitor, Menu, LogOut, Shield,
 } from 'lucide-react';
-import { clearToken } from '@/lib/api';
+import { clearToken, getUser } from '@/lib/api';
 import { useLanguage } from '@/i18n/LanguageContext';
 import { APP_VERSION } from '@/lib/version';
 import { getUnreadCount, subscribeNotificationsChanged } from '@/lib/notifications';
 import DailyCheckInReminder from '@/components/DailyCheckInReminder';
+import TodoWidget from '@/components/TodoWidget';
 
 interface SidebarProps {
   collapsed: boolean;
@@ -25,6 +26,7 @@ export default function Sidebar({ collapsed, onToggle, onShowHistory, userName }
   const { t, toggleLocale } = useLanguage();
   const pathname = usePathname();
   const [unreadCount, setUnreadCount] = useState(0);
+  const isAdmin = !!getUser()?.isAdmin;
 
   useEffect(() => {
     const update = () => setUnreadCount(getUnreadCount());
@@ -66,8 +68,16 @@ export default function Sidebar({ collapsed, onToggle, onShowHistory, userName }
     },
     {
       titleKey: 'sidebar.toolStore',
-      items: [{ icon: Store, labelKey: 'sidebar.aiStore', href: '/coming-soon' }],
+      items: [{ icon: Store, labelKey: 'sidebar.aiStore', href: '/ai-store', active: pathname.startsWith('/ai-store') }],
     },
+    ...(isAdmin
+      ? [
+          {
+            titleKey: 'sidebar.admin',
+            items: [{ icon: Shield, labelKey: 'sidebar.adminPanel', href: '/admin', active: pathname.startsWith('/admin') }],
+          },
+        ]
+      : []),
   ];
 
   const handleLogout = () => {
@@ -158,6 +168,7 @@ export default function Sidebar({ collapsed, onToggle, onShowHistory, userName }
         ))}
       </nav>
 
+      <TodoWidget collapsed={collapsed} />
       <DailyCheckInReminder collapsed={collapsed} userName={userName} />
 
       {/* Footer */}

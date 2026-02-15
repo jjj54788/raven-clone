@@ -65,6 +65,12 @@ migrations/20260214093058_init/
 migrations/20260214093058_init/migration.sql
 migrations/20260215120000_align_user_schema/
 migrations/20260215120000_align_user_schema/migration.sql
+migrations/20260215153000_add_todo_module/
+migrations/20260215153000_add_todo_module/migration.sql
+migrations/20260215190000_invite_admin_settings/
+migrations/20260215190000_invite_admin_settings/migration.sql
+migrations/20260215203000_add_store_custom_items/
+migrations/20260215203000_add_store_custom_items/migration.sql
 migrations/migration_lock.toml
 schema.prisma
 seed.ts

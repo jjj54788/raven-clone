@@ -8,6 +8,70 @@ import { isFirebaseAuthConfigured, verifyFirebaseToken } from '../../utils/fireb
 export class AuthService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private readonly inviteOnlySettingKey = 'auth.inviteOnly';
+
+  private parseBooleanEnv(value: string | undefined): boolean | null {
+    if (value == null) return null;
+    const v = value.trim().toLowerCase();
+    if (['1', 'true', 'yes', 'y', 'on'].includes(v)) return true;
+    if (['0', 'false', 'no', 'n', 'off'].includes(v)) return false;
+    return null;
+  }
+
+  private parseCsvEnv(value: string | undefined): string[] {
+    if (!value) return [];
+    return value
+      .split(/[,\s]+/g)
+      .map(v => v.trim())
+      .filter(Boolean);
+  }
+
+  private async isInviteOnlyEnabled(): Promise<boolean> {
+    const db = await this.prisma.appSetting.findUnique({
+      where: { key: this.inviteOnlySettingKey },
+      select: { value: true },
+    });
+    const dbValue = this.parseBooleanEnv(db?.value);
+    if (dbValue != null) return dbValue;
+
+    const configured = this.parseBooleanEnv(process.env.AUTH_INVITE_ONLY);
+    if (configured != null) return configured;
+
+    return process.env.NODE_ENV === 'production';
+  }
+
+  private isEmailAllowedByEnv(emailRaw: string): boolean {
+    const email = emailRaw.trim().toLowerCase();
+    const allowedEmails = new Set(this.parseCsvEnv(process.env.AUTH_ALLOWLIST_EMAILS).map(e => e.toLowerCase()));
+    if (allowedEmails.has(email)) return true;
+
+    const at = email.lastIndexOf('@');
+    if (at === -1) return false;
+    const domain = email.slice(at + 1);
+    const allowedDomains = new Set(this.parseCsvEnv(process.env.AUTH_ALLOWLIST_DOMAINS).map(d => d.toLowerCase()));
+    if (allowedDomains.has(domain)) return true;
+
+    return false;
+  }
+
+  private async isEmailAllowedToSignup(emailRaw: string): Promise<boolean> {
+    const email = emailRaw.trim().toLowerCase();
+    if (this.isEmailAllowedByEnv(email)) return true;
+
+    const row = await this.prisma.signupAllowlistEmail.findUnique({
+      where: { email },
+      select: { id: true },
+    });
+
+    return Boolean(row);
+  }
+
+  private async assertSignupAllowed(email: string) {
+    if (!(await this.isInviteOnlyEnabled())) return;
+    if (await this.isEmailAllowedToSignup(email)) return;
+    throw new BadRequestException('Sign-ups are invite-only. Please ask the admin for access.');
+  }
+
   private get jwtSecret(): string {
     const secret = process.env.JWT_SECRET;
     if (!secret) {
@@ -41,10 +105,15 @@ export class AuthService {
   }
 
   async register(email: string, name: string, password: string) {
+    email = email.trim().toLowerCase();
+    name = name.trim();
+
     const existing = await this.prisma.user.findUnique({ where: { email } });
     if (existing) {
       throw new BadRequestException('Email already registered');
     }
+
+    await this.assertSignupAllowed(email);
 
     const hash = await bcrypt.hash(password, 10);
     const user = await this.prisma.user.create({
@@ -53,12 +122,13 @@ export class AuthService {
 
     const tokens = this.generateTokens(user.id);
     return {
-      user: { id: user.id, email: user.email, name: user.name, credits: user.credits },
+      user: { id: user.id, email: user.email, name: user.name, credits: user.credits, isAdmin: user.isAdmin },
       ...tokens,
     };
   }
 
   async login(email: string, password: string) {
+    email = email.trim().toLowerCase();
     const user = await this.prisma.user.findUnique({ where: { email } });
     if (!user) {
       throw new UnauthorizedException('Invalid email or password');
@@ -75,7 +145,7 @@ export class AuthService {
 
     const tokens = this.generateTokens(user.id);
     return {
-      user: { id: user.id, email: user.email, name: user.name, credits: user.credits },
+      user: { id: user.id, email: user.email, name: user.name, credits: user.credits, isAdmin: user.isAdmin },
       ...tokens,
     };
   }
@@ -95,7 +165,7 @@ export class AuthService {
       throw new UnauthorizedException('Invalid Google token');
     }
 
-    const email = decoded.email.trim();
+    const email = decoded.email.trim().toLowerCase();
     if (!email) {
       throw new BadRequestException('Google account email is not available for this user');
     }
@@ -105,6 +175,7 @@ export class AuthService {
     let user = await this.prisma.user.findUnique({ where: { email } });
 
     if (!user) {
+      await this.assertSignupAllowed(email);
       user = await this.prisma.user.create({
         data: {
           email,
@@ -126,7 +197,14 @@ export class AuthService {
 
     const tokens = this.generateTokens(user.id);
     return {
-      user: { id: user.id, email: user.email, name: user.name, credits: user.credits, avatarUrl: user.avatarUrl },
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        credits: user.credits,
+        isAdmin: user.isAdmin,
+        avatarUrl: user.avatarUrl,
+      },
       ...tokens,
     };
   }
@@ -136,6 +214,13 @@ export class AuthService {
     if (!user) {
       throw new UnauthorizedException('User not found');
     }
-    return { id: user.id, email: user.email, name: user.name, credits: user.credits, avatarUrl: user.avatarUrl };
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      credits: user.credits,
+      isAdmin: user.isAdmin,
+      avatarUrl: user.avatarUrl,
+    };
   }
 }

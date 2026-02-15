@@ -1,10 +1,12 @@
-import { Controller, Get, Post, Body, Req, Res } from '@nestjs/common';
+import { Controller, Get, Post, Body, Res, UseGuards, ServiceUnavailableException } from '@nestjs/common';
 import { Response } from 'express';
 import { tavily } from '@tavily/core';
 import { AiService } from './ai.service';
-import { AuthService } from '../auth/auth.service';
 import { SimpleChatDto } from './dto/simple-chat.dto';
 import { StreamChatDto } from './dto/stream-chat.dto';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { AiUsageService } from './ai-usage.service';
 
 const AI_DEBUG = process.env.AI_DEBUG === '1';
 function debugLog(...args: unknown[]) {
@@ -40,7 +42,7 @@ Instructions:
 export class AiController {
   constructor(
     private readonly aiService: AiService,
-    private readonly authService: AuthService,
+    private readonly aiUsageService: AiUsageService,
   ) {
     // Log Tavily status on startup
     if (process.env.TAVILY_API_KEY) {
@@ -56,22 +58,28 @@ export class AiController {
   }
 
   @Post('simple-chat')
+  @UseGuards(JwtAuthGuard)
   async simpleChat(
     @Body() body: SimpleChatDto,
-    @Req() req: any,
+    @CurrentUser() userId: string,
   ) {
     const defaultModel = this.aiService.getDefaultModel();
     if (!defaultModel) {
-      return {
-        content: 'Error: No AI API Key configured. Add keys to backend/.env',
-        model: 'none',
-        provider: 'none',
-      };
+      throw new ServiceUnavailableException('No AI API Key configured. Add keys to backend/.env');
     }
 
     const selectedModel = body.model
       ? this.aiService.getModelById(body.model) || defaultModel
       : defaultModel;
+
+    this.aiUsageService.assertChatRateLimit(userId, { webSearch: body.webSearch });
+
+    const history = body.sessionId
+      ? await this.aiService.loadSessionHistory(body.sessionId, userId)
+      : null;
+
+    const cost = this.aiUsageService.getChatCreditCost({ webSearch: body.webSearch });
+    const creditsRemaining = await this.aiUsageService.consumeCreditsOrThrow(userId, cost);
 
     // Web search if enabled
     let systemPrompt = getDefaultSystemPrompt();
@@ -85,21 +93,8 @@ export class AiController {
       { role: 'system', content: systemPrompt },
     ];
 
-    const userId = body.sessionId ? this.authService.getUserIdFromRequest(req) : null;
-
-    // Load history from database if session exists and user is authenticated
-    if (body.sessionId && userId) {
-      try {
-        const history = await this.aiService.loadSessionHistory(body.sessionId, userId);
-        msgs.push(...history);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : 'Unknown error';
-        return {
-          content: `Error: ${message}`,
-          model: selectedModel.id,
-          provider: selectedModel.provider,
-        };
-      }
+    if (history) {
+      msgs.push(...history);
     } else if (body.messages) {
       for (const m of body.messages) {
         msgs.push({ role: m.role, content: m.content });
@@ -108,37 +103,29 @@ export class AiController {
 
     msgs.push({ role: 'user', content: body.message });
 
-    try {
-      const content = await this.aiService.chat(selectedModel, msgs);
+    const content = await this.aiService.chat(selectedModel, msgs);
 
-      // Save messages to database if session exists
-      if (body.sessionId && userId) {
-        try {
-          await this.aiService.saveMessages(body.sessionId, userId, body.message, content, selectedModel.id);
-        } catch (err) {
-          const message = err instanceof Error ? err.message : 'Unknown error';
-          console.warn('[simple-chat] Failed to save messages:', message);
-        }
+    // Save messages to database if session exists
+    if (body.sessionId) {
+      try {
+        await this.aiService.saveMessages(body.sessionId, userId, body.message, content, selectedModel.id);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        console.warn('[simple-chat] Failed to save messages:', message);
       }
-
-      return { content, model: selectedModel.id, provider: selectedModel.provider };
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Unknown error';
-      return {
-        content: `AI Error (${selectedModel.provider} ${selectedModel.name}): ${message}`,
-        model: selectedModel.id,
-        provider: selectedModel.provider,
-      };
     }
+
+    return { content, model: selectedModel.id, provider: selectedModel.provider, creditsRemaining };
   }
 
   /**
    * SSE streaming chat endpoint
    */
   @Post('stream-chat')
+  @UseGuards(JwtAuthGuard)
   async streamChat(
     @Body() body: StreamChatDto,
-    @Req() req: any,
+    @CurrentUser() userId: string,
     @Res() res: Response,
   ) {
     debugLog(
@@ -151,23 +138,35 @@ export class AiController {
       }),
     );
 
-    // Always respond as SSE
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no');
-    res.flushHeaders();
-
     const defaultModel = this.aiService.getDefaultModel();
     if (!defaultModel) {
-      res.write(`data: ${JSON.stringify({ error: 'No AI API Key configured', done: true })}\n\n`);
-      res.end();
-      return;
+      throw new ServiceUnavailableException('No AI API Key configured. Add keys to backend/.env');
     }
 
     const selectedModel = body.model
       ? this.aiService.getModelById(body.model) || defaultModel
       : defaultModel;
+
+    this.aiUsageService.assertChatRateLimit(userId, { webSearch: body.webSearch });
+    const release = this.aiUsageService.reserveStreamSlot(userId);
+
+    let released = false;
+    const releaseOnce = () => {
+      if (released) return;
+      released = true;
+      release();
+    };
+
+    res.on('close', releaseOnce);
+    res.on('finish', releaseOnce);
+
+    try {
+      const history = body.sessionId
+        ? await this.aiService.loadSessionHistory(body.sessionId, userId)
+        : null;
+
+      const cost = this.aiUsageService.getChatCreditCost({ webSearch: body.webSearch });
+      await this.aiUsageService.consumeCreditsOrThrow(userId, cost);
 
     // Web search if enabled
     let systemPrompt = getDefaultSystemPrompt();
@@ -183,24 +182,19 @@ export class AiController {
       { role: 'system', content: systemPrompt },
     ];
 
-    if (body.sessionId) {
-      const userId = this.authService.getUserIdFromRequest(req);
-      debugLog(`[stream-chat] userId from token: ${userId}`);
-      if (userId) {
-        try {
-          const history = await this.aiService.loadSessionHistory(body.sessionId, userId);
-          debugLog(`[stream-chat] Loaded ${history.length} history messages`);
-          msgs.push(...history);
-        } catch (err) {
-          const message = err instanceof Error ? err.message : 'Unknown error';
-          res.write(`data: ${JSON.stringify({ error: message, done: true })}\n\n`);
-          res.end();
-          return;
-        }
-      }
+    if (history) {
+      debugLog(`[stream-chat] Loaded ${history.length} history messages`);
+      msgs.push(...history);
     }
 
     msgs.push({ role: 'user', content: body.message });
+
+    // Always respond as SSE
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
 
     try {
       const fullContent = await this.aiService.chatStream(selectedModel, msgs, res);
@@ -208,21 +202,14 @@ export class AiController {
 
       // Save messages to database if session exists
       if (body.sessionId) {
-        const userId = this.authService.getUserIdFromRequest(req);
-        if (userId) {
-          debugLog(`[stream-chat] Saving messages to session ${body.sessionId}`);
-          try {
-            await this.aiService.saveMessages(body.sessionId, userId, body.message, fullContent, selectedModel.id);
-            debugLog(`[stream-chat] Messages saved successfully`);
-          } catch (err) {
-            const message = err instanceof Error ? err.message : 'Unknown error';
-            console.warn(`[stream-chat] Failed to save messages: ${message}`);
-          }
-        } else {
-          debugLog(`[stream-chat] No userId, skipping save`);
+        debugLog(`[stream-chat] Saving messages to session ${body.sessionId}`);
+        try {
+          await this.aiService.saveMessages(body.sessionId, userId, body.message, fullContent, selectedModel.id);
+          debugLog(`[stream-chat] Messages saved successfully`);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : 'Unknown error';
+          console.warn(`[stream-chat] Failed to save messages: ${message}`);
         }
-      } else {
-        debugLog(`[stream-chat] No sessionId, skipping save`);
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error';
@@ -233,6 +220,9 @@ export class AiController {
       }
       res.write(`data: ${JSON.stringify({ error: message, done: true })}\n\n`);
       res.end();
+    }
+    } finally {
+      releaseOnce();
     }
   }
 

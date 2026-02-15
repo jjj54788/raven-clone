@@ -15,10 +15,13 @@ model User {
   provider  String   @default("local")
   avatarUrl String?
   credits   Int      @default(100)
+  isAdmin   Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   sessions Session[]
+  todoLists TodoList[]
+  storeCustomItems StoreCustomItem[]
 }
 
 model Session {
@@ -45,4 +48,93 @@ model Message {
   session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@index([sessionId])
+}
+
+enum TodoStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+  ARCHIVED
+}
+
+model TodoList {
+  id        String   @id @default(uuid())
+  userId    String
+  name      String
+  color     String?
+  isInbox   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user  User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tasks TodoTask[]
+
+  @@index([userId])
+}
+
+model TodoTask {
+  id          String     @id @default(uuid())
+  listId      String
+  title       String
+  description String?
+  status      TodoStatus @default(TODO)
+  priority    Int        @default(0)
+  dueAt       DateTime?
+  completedAt DateTime?
+  position    Int        @default(0)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  list TodoList @relation(fields: [listId], references: [id], onDelete: Cascade)
+
+  @@index([listId])
+  @@index([status, dueAt])
+}
+
+model SignupAllowlistEmail {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  note      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AppSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+enum StoreItemType {
+  TOOL
+  SKILL
+}
+
+enum StoreItemPricing {
+  FREE
+  FREEMIUM
+  PAID
+  OPEN_SOURCE
+}
+
+model StoreCustomItem {
+  id                String            @id @default(uuid())
+  userId            String
+  type              StoreItemType
+  name              String
+  description       String
+  url               String
+  iconText          String?
+  pricing           StoreItemPricing?
+  categories        String[]
+  tags              String[]
+  trialNotesMarkdown String?
+  recommendReasons  String[]
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([type])
 }

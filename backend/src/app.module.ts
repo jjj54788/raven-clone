@@ -3,8 +3,11 @@ import { PrismaModule } from './modules/prisma/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { AiModule } from './modules/ai/ai.module';
 import { AskModule } from './modules/ask/ask.module';
+import { StoreModule } from './modules/store/store.module';
+import { TodoModule } from './modules/todo/todo.module';
+import { AdminModule } from './modules/admin/admin.module';
 
 @Module({
-  imports: [PrismaModule, AuthModule, AiModule, AskModule],
+  imports: [PrismaModule, AuthModule, AiModule, AskModule, StoreModule, TodoModule, AdminModule],
 })
 export class AppModule {}
