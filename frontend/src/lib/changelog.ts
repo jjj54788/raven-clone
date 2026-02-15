@@ -16,9 +16,30 @@ export interface ReleaseNote {
 // Keep newest first. This is a lightweight, editable data source.
 export const RELEASES: ReleaseNote[] = [
   {
+    version: 'v0.4.4',
+    date: '2026-02-15',
+    latest: true,
+    changes: [
+      {
+        type: 'feature',
+        en: 'Add admin console and AI Todos/Store experiences',
+        zh: '新增管理员后台、AI 待办与 AI 商店体验',
+      },
+      {
+        type: 'improvement',
+        en: 'Add daily check-in reminder with signed-in syncing',
+        zh: '新增每日打卡提醒，并在登录后支持同步',
+      },
+      {
+        type: 'improvement',
+        en: 'Improve one-click dev start reliability on Windows',
+        zh: '优化 Windows 一键启动脚本稳定性',
+      },
+    ],
+  },
+  {
     version: 'v0.4.3',
     date: '2026-02-14',
-    latest: true,
     changes: [
       {
         type: 'feature',

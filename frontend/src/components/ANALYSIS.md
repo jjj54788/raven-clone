@@ -20,7 +20,7 @@ Last updated: 2026-02-15
   - Logout clears token and redirects to `/login`.
   - Language toggle.
 - `frontend/src/components/QuoteFooter.tsx`
-  - Rotates bilingual quotes with animated fade and theme backgrounds.
+  - Rotates bilingual quotes with animated fade and photo backgrounds.
   - Pause/resume control + hover pause; persists manual pause in `localStorage` (`raven_quote_paused`).
   - Respects `prefers-reduced-motion` (disables rotation/animation).
 
