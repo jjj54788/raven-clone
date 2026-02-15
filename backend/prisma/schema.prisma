@@ -22,6 +22,7 @@ model User {
   sessions Session[]
   todoLists TodoList[]
   storeCustomItems StoreCustomItem[]
+  dailyCheckIns DailyCheckIn[]
 }
 
 model Session {
@@ -137,4 +138,16 @@ model StoreCustomItem {
 
   @@index([userId])
   @@index([type])
+}
+
+model DailyCheckIn {
+  id        String   @id @default(uuid())
+  userId    String
+  dateKey   String   // YYYY-MM-DD, computed client-side (day starts at 05:00 local)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dateKey])
+  @@index([userId, createdAt])
 }

@@ -6,8 +6,9 @@ import { AskModule } from './modules/ask/ask.module';
 import { StoreModule } from './modules/store/store.module';
 import { TodoModule } from './modules/todo/todo.module';
 import { AdminModule } from './modules/admin/admin.module';
+import { CheckInModule } from './modules/checkin/checkin.module';
 
 @Module({
-  imports: [PrismaModule, AuthModule, AiModule, AskModule, StoreModule, TodoModule, AdminModule],
+  imports: [PrismaModule, AuthModule, AiModule, AskModule, StoreModule, TodoModule, AdminModule, CheckInModule],
 })
 export class AppModule {}

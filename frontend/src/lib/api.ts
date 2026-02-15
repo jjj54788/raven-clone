@@ -407,3 +407,22 @@ export async function updateTodoTask(
 export async function deleteTodoTask(id: string): Promise<{ message: string }> {
   return apiFetch(`/todos/tasks/${id}`, { method: 'DELETE' });
 }
+
+// ---- Daily Check-ins ----
+export type CheckInListResponse = { dates: string[] };
+export type CheckInResponse = { dateKey: string; created: boolean; createdAt: string };
+
+export async function listCheckIns(params?: { from?: string; to?: string }): Promise<CheckInListResponse> {
+  const qp = new URLSearchParams();
+  if (params?.from) qp.set('from', params.from);
+  if (params?.to) qp.set('to', params.to);
+  const qs = qp.toString();
+  return apiFetch(`/checkins${qs ? `?${qs}` : ''}`);
+}
+
+export async function createCheckIn(dateKey?: string): Promise<CheckInResponse> {
+  return apiFetch('/checkins', {
+    method: 'POST',
+    body: JSON.stringify(dateKey ? { dateKey } : {}),
+  });
+}

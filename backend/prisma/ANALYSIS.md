@@ -71,6 +71,8 @@ migrations/20260215190000_invite_admin_settings/
 migrations/20260215190000_invite_admin_settings/migration.sql
 migrations/20260215203000_add_store_custom_items/
 migrations/20260215203000_add_store_custom_items/migration.sql
+migrations/20260215211000_add_daily_checkins/
+migrations/20260215211000_add_daily_checkins/migration.sql
 migrations/migration_lock.toml
 schema.prisma
 seed.ts

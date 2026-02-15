@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { useLanguage } from '@/i18n/LanguageContext';
+import { createCheckIn, getToken, getUser, listCheckIns } from '@/lib/api';
 
 interface DailyCheckInReminderProps {
   collapsed: boolean;
@@ -348,9 +349,16 @@ function CalendarModal({
 export default function DailyCheckInReminder({ collapsed, userName }: DailyCheckInReminderProps) {
   const { t, locale } = useLanguage();
 
-  const userKey = useMemo(() => (userName || 'user').toLowerCase(), [userName]);
+  const legacyUserKey = useMemo(() => (userName || 'user').toLowerCase(), [userName]);
+  const userKey = useMemo(() => {
+    const user = getUser();
+    return String(user?.id || user?.email || legacyUserKey).toLowerCase();
+  }, [legacyUserKey]);
+
   const lastCheckInKey = useMemo(() => `raven_daily_checkin:${userKey}`, [userKey]);
   const historyKey = useMemo(() => `raven_daily_checkin_history:${userKey}`, [userKey]);
+  const legacyLastCheckInKey = useMemo(() => `raven_daily_checkin:${legacyUserKey}`, [legacyUserKey]);
+  const legacyHistoryKey = useMemo(() => `raven_daily_checkin_history:${legacyUserKey}`, [legacyUserKey]);
 
   const [todayKey, setTodayKey] = useState(() => getTodayKey());
   const [checkedDates, setCheckedDates] = useState<string[]>([]);
@@ -393,20 +401,74 @@ export default function DailyCheckInReminder({ collapsed, userName }: DailyCheck
           return;
         }
 
+        // Legacy migration (when userKey switched from name -> id/email)
+        const legacyParsed = safeParseJson(localStorage.getItem(legacyHistoryKey));
+        const legacyFromHistory = normalizeDateKeys(legacyParsed);
+        if (legacyFromHistory.length > 0) {
+          setCheckedDates(legacyFromHistory);
+          try {
+            localStorage.setItem(historyKey, JSON.stringify(legacyFromHistory));
+          } catch {
+            // ignore
+          }
+          return;
+        }
+
+        const legacyLast = localStorage.getItem(legacyLastCheckInKey);
+        if (legacyLast && DATE_KEY_RE.test(legacyLast)) {
+          const migrated = [legacyLast];
+          setCheckedDates(migrated);
+          try {
+            localStorage.setItem(historyKey, JSON.stringify(migrated));
+          } catch {
+            // ignore
+          }
+          return;
+        }
+
         setCheckedDates([]);
       } catch {
         setCheckedDates([]);
       }
     };
 
+    const syncRemoteHistory = async () => {
+      if (!getToken()) return;
+      try {
+        const res = await listCheckIns();
+        const remoteDates = normalizeDateKeys((res as any)?.dates);
+        if (remoteDates.length === 0) return;
+
+        setCheckedDates((prev) => {
+          const merged = normalizeDateKeys([...prev, ...remoteDates]);
+          try {
+            localStorage.setItem(historyKey, JSON.stringify(merged));
+          } catch {
+            // ignore
+          }
+          return merged;
+        });
+      } catch {
+        // ignore (offline or server disabled)
+      }
+    };
+
     const tick = () => setTodayKey(getTodayKey());
 
     loadHistory();
+    void syncRemoteHistory();
     tick();
     const interval = window.setInterval(tick, 60_000);
 
     const onStorage = (e: StorageEvent) => {
-      if (e.key === historyKey || e.key === lastCheckInKey) loadHistory();
+      if (
+        e.key === historyKey
+        || e.key === lastCheckInKey
+        || e.key === legacyHistoryKey
+        || e.key === legacyLastCheckInKey
+      ) {
+        loadHistory();
+      }
     };
     window.addEventListener('storage', onStorage);
 
@@ -423,7 +485,7 @@ export default function DailyCheckInReminder({ collapsed, userName }: DailyCheck
 
   const closeCalendar = () => setCalendarOpen(false);
 
-  const handleCheckIn = () => {
+  const handleCheckIn = async () => {
     try {
       localStorage.setItem(lastCheckInKey, todayKey);
     } catch {
@@ -441,6 +503,13 @@ export default function DailyCheckInReminder({ collapsed, userName }: DailyCheck
       }
       return next;
     });
+
+    if (!getToken()) return;
+    try {
+      await createCheckIn(todayKey);
+    } catch {
+      // ignore
+    }
   };
 
   const handleResetToday = () => {
