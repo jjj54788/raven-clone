@@ -10,7 +10,7 @@ import { sendStreamChat, createSession } from '@/lib/api';
 
 export default function Home() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [historyVisible, setHistoryVisible] = useState(true);
+  const [historyVisible, setHistoryVisible] = useState(false);
   const [loading, setLoading] = useState(false);
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
   const [quotedText, setQuotedText] = useState('');
