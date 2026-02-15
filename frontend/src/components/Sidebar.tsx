@@ -6,14 +6,13 @@ import { usePathname } from 'next/navigation';
 import {
   Settings, Search, BookOpen, Eye, FlaskConical,
   FileText, Users, Target, LayoutGrid, PenTool,
-  Store, Bell, Globe, ChevronLeft, ChevronRight, Monitor, Menu, LogOut, Shield,
+  Store, Bell, Globe, ChevronLeft, ChevronRight, Monitor, Menu, LogOut, Shield, ListTodo,
 } from 'lucide-react';
 import { clearToken, getUser } from '@/lib/api';
 import { useLanguage } from '@/i18n/LanguageContext';
 import { APP_VERSION } from '@/lib/version';
 import { getUnreadCount, subscribeNotificationsChanged } from '@/lib/notifications';
 import DailyCheckInReminder from '@/components/DailyCheckInReminder';
-import TodoWidget from '@/components/TodoWidget';
 
 interface SidebarProps {
   collapsed: boolean;
@@ -60,6 +59,7 @@ export default function Sidebar({ collapsed, onToggle, onShowHistory, userName }
       items: [
         { icon: Target, labelKey: 'sidebar.aiPlanning', href: '/coming-soon' },
         { icon: LayoutGrid, labelKey: 'sidebar.aiDecision', href: '/coming-soon' },
+        { icon: ListTodo, labelKey: 'sidebar.aiTodo', href: '/todos', active: pathname === '/todos' },
       ],
     },
     {
@@ -168,7 +168,6 @@ export default function Sidebar({ collapsed, onToggle, onShowHistory, userName }
         ))}
       </nav>
 
-      <TodoWidget collapsed={collapsed} />
       <DailyCheckInReminder collapsed={collapsed} userName={userName} />
 
       {/* Footer */}
