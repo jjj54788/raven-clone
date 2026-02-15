@@ -82,6 +82,8 @@ Default account: `admin@raven.local` / `admin123`
 
 - Multi-model AI chat (DeepSeek V3, DeepSeek R1, GPT, Gemini)
 - User registration & login (JWT)
+- Optional invite-only sign-ups (allowlist)
+- Basic AI usage limits (rate limit, stream concurrency, credits)
 - Chat session management (create, switch, delete)
 - Message persistence (survives page refresh)
 - Auto-naming sessions based on first message
@@ -91,12 +93,22 @@ Default account: `admin@raven.local` / `admin123`
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| POST | `/api/v1/auth/register` | No | Register new user |
+| POST | `/api/v1/auth/register` | No | Register new user (invite-only in production by default) |
 | POST | `/api/v1/auth/login` | No | Login |
 | GET | `/api/v1/auth/me` | Yes | Get current user |
 | GET | `/api/v1/ai/models` | No | List available AI models |
-| POST | `/api/v1/ai/simple-chat` | No | Send chat message |
+| POST | `/api/v1/ai/simple-chat` | Yes | Send chat message |
+| POST | `/api/v1/ai/stream-chat` | Yes | Stream chat message (SSE) |
 | GET | `/api/v1/ask/sessions` | Yes | List user sessions |
 | POST | `/api/v1/ask/sessions` | Yes | Create new session |
 | GET | `/api/v1/ask/sessions/:id/messages` | Yes | Get session messages |
 | DELETE | `/api/v1/ask/sessions/:id` | Yes | Delete session |
+
+## Docs Automation (ANALYSIS.md)
+
+This repo keeps per-module notes in `ANALYSIS.md`. Enable git hooks so these snapshots stay up to date on every commit/push:
+
+- Windows: `./scripts/setup-githooks.ps1`
+- macOS/Linux: `./scripts/setup-githooks.sh`
+
+Hooks run `node scripts/gen-analysis-md.mjs` and will stage updated `**/ANALYSIS.md` automatically.
