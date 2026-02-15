@@ -35,5 +35,6 @@ index.ts
 useAuth.ts
 useModels.ts
 useSessions.ts
+useTeams.ts
 ```
 <!-- AUTO-GENERATED:END -->

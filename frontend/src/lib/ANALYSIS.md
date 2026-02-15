@@ -62,6 +62,7 @@ api.ts
 changelog.ts
 firebase.ts
 notifications.ts
+teams.ts
 version.ts
 ```
 <!-- AUTO-GENERATED:END -->

@@ -49,6 +49,12 @@ ChatMessage.tsx
 DailyCheckInReminder.tsx
 QuoteFooter.tsx
 Sidebar.tsx
+teams/
+teams/CreateTeamModal.tsx
+teams/EditTeamModal.tsx
+teams/ModelSettingsModal.tsx
+teams/TeamCanvas.tsx
+teams/TeamCard.tsx
 TodoTaskDrawer.tsx
 TodoWidget.tsx
 WelcomeScreen.tsx
