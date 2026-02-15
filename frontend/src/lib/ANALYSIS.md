@@ -1,0 +1,46 @@
+# Frontend Lib Notes (API + Firebase)
+
+Last updated: 2026-02-15
+
+## API Client
+
+File: `frontend/src/lib/api.ts`
+
+- `API_BASE` is hard-coded to `http://localhost:3001/api/v1`.
+- Token storage:
+  - `raven_token` (access token)
+  - `raven_user` (user object)
+- `apiFetch()`:
+  - Adds JSON headers + Authorization if token present.
+  - On `401`, clears storage and redirects to `/login`.
+- Streaming chat:
+  - `sendStreamChat()` does a `POST /ai/stream-chat` and manually parses the SSE stream line-by-line.
+
+Notes:
+
+- The SSE parsing is tailored to the backend’s `data: <json>\n\n` format.
+- There is no AbortController wiring; cancellation (navigating away) may leave a request running.
+
+## Firebase Client (Google Sign-In)
+
+File: `frontend/src/lib/firebase.ts`
+
+Requires env vars:
+
+- `NEXT_PUBLIC_FIREBASE_API_KEY`
+- `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`
+- `NEXT_PUBLIC_FIREBASE_PROJECT_ID`
+
+Flow:
+
+- Uses `signInWithPopup` to authenticate with Google and obtains an `idToken`.
+- Sends the `idToken` to backend `/api/v1/auth/google`.
+
+## Notifications / Changelog
+
+- `frontend/src/lib/notifications.ts`
+  - Stores notifications in `localStorage` (`raven_notifications_v1`), emits `raven:notifications` on changes.
+- `frontend/src/lib/changelog.ts`
+  - Static, editable release notes source used by `/whats-new`.
+- `frontend/src/lib/version.ts`
+  - Reads `NEXT_PUBLIC_APP_VERSION` which is computed in `frontend/next.config.js` from git commit count.

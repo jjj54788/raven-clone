@@ -1,0 +1,22 @@
+# Frontend Hooks Notes
+
+Last updated: 2026-02-15
+
+## Hooks
+
+- Auth gate: `frontend/src/hooks/useAuth.ts`
+  - Reads token from `localStorage` and redirects to `/login` if missing.
+  - Reads user from `localStorage` to display a name.
+- Model list: `frontend/src/hooks/useModels.ts`
+  - Loads `/ai/models` after auth is ready; selects the first model by default.
+- Sessions/messages: `frontend/src/hooks/useSessions.ts`
+  - Loads session list from `/ask/sessions`.
+  - Restores last active session from `sessionStorage` (`raven_active_session`).
+  - Loads messages for selected session from `/ask/sessions/:id/messages`.
+  - Deletes session via `/ask/sessions/:id` and clears active state if needed.
+
+## Notes / Gaps
+
+- There is no pagination for messages; for long chats the UI may grow large.
+- Session restore only checks that the saved id is in the fetched session list (good), but backend-side authorization still matters.
+

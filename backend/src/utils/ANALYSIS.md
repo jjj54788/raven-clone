@@ -1,0 +1,20 @@
+# Backend Utils Notes
+
+Last updated: 2026-02-15
+
+## Firebase Admin (Google Sign-In)
+
+File: `backend/src/utils/firebase-admin.ts`
+
+- Lazy-initializes a single Firebase Admin app using:
+  - `FIREBASE_PROJECT_ID`
+  - `FIREBASE_CLIENT_EMAIL`
+  - `FIREBASE_PRIVATE_KEY` (supports `\\n` escaped newlines)
+- `verifyFirebaseToken(idToken)`:
+  - Verifies the Firebase ID token and returns `{ uid, email, name, picture }` (or `null` if invalid/unconfigured).
+
+## Notes / Risks
+
+- If env vars are missing, Google Sign-In is disabled silently (warn log and returns `null`).
+- Returned `email` may be empty; callers should handle that defensively if stricter constraints are needed.
+
