@@ -27,6 +27,14 @@ function formatApiError(data: any): string {
   return String(msg);
 }
 
+function pad2(n: number): string {
+  return String(n).padStart(2, '0');
+}
+
+function toLocalDateKey(date = new Date()): string {
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+}
+
 function toUtcDateKey(iso: string): string {
   try {
     return new Date(iso).toISOString().slice(0, 10);
@@ -98,6 +106,10 @@ export default function TodoTaskDrawer({ open, task, lists, onClose, onSaved, on
     const nextTitle = title.trim();
     if (!nextTitle) {
       setError(t('todos.requiredTitle'));
+      return;
+    }
+    if (!dueKey) {
+      setError(t('todos.requiredDueDate'));
       return;
     }
 
@@ -205,11 +217,11 @@ export default function TodoTaskDrawer({ open, task, lists, onClose, onSaved, on
                   />
                   <button
                     type="button"
-                    onClick={() => setDueKey('')}
+                    onClick={() => setDueKey(toLocalDateKey())}
                     className="h-10 shrink-0 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-600 hover:bg-gray-50"
-                    title={t('todos.clear')}
+                    title={t('todos.setToday')}
                   >
-                    {t('todos.clear')}
+                    {t('todos.setToday')}
                   </button>
                 </div>
               </div>
