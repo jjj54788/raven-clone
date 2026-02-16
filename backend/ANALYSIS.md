@@ -151,6 +151,8 @@ prisma/migrations/20260216093000_add_aise_workflow/
 prisma/migrations/20260216093000_add_aise_workflow/migration.sql
 prisma/migrations/20260216120000_add_debate/
 prisma/migrations/20260216120000_add_debate/migration.sql
+prisma/migrations/20260216140000_add_debate_agent_owner/
+prisma/migrations/20260216140000_add_debate_agent_owner/migration.sql
 prisma/migrations/migration_lock.toml
 prisma/schema.prisma
 prisma/seed.ts

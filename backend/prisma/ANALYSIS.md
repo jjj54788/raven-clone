@@ -83,6 +83,8 @@ migrations/20260216093000_add_aise_workflow/
 migrations/20260216093000_add_aise_workflow/migration.sql
 migrations/20260216120000_add_debate/
 migrations/20260216120000_add_debate/migration.sql
+migrations/20260216140000_add_debate_agent_owner/
+migrations/20260216140000_add_debate_agent_owner/migration.sql
 migrations/migration_lock.toml
 schema.prisma
 seed.ts

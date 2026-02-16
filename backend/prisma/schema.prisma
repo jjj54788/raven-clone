@@ -36,6 +36,7 @@ model User {
   aiseQualityGates AiseQualityGate[]
   aiseAcceptanceItems AiseAcceptanceItem[]
   aiseFocuses AiseFocus[]
+  debateAgents DebateAgent[]
   debateSessions DebateSession[]
   debateTemplates DebateTemplate[]
 }
@@ -536,6 +537,7 @@ model AiseFocusTrace {
 
 model DebateAgent {
   id           String              @id
+  userId       String?
   name         String
   profile      String
   systemPrompt String
@@ -545,7 +547,10 @@ model DebateAgent {
   displayOrder Int                 @default(0)
   createdAt    DateTime            @default(now())
 
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@index([category, displayOrder])
+  @@index([userId])
 }
 
 model DebateSession {
