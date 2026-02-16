@@ -8,6 +8,10 @@ import { TodoModule } from './modules/todo/todo.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { CheckInModule } from './modules/checkin/checkin.module';
 import { ExploreModule } from './modules/explore/explore.module';
+import { IntegrationsModule } from './modules/integrations/integrations.module';
+import { ChatKitModule } from './modules/chatkit/chatkit.module';
+import { AiseModule } from './modules/aise/aise.module';
+import { DebateModule } from './modules/debate/debate.module';
 
 @Module({
   imports: [
@@ -20,6 +24,10 @@ import { ExploreModule } from './modules/explore/explore.module';
     AdminModule,
     CheckInModule,
     ExploreModule,
+    IntegrationsModule,
+    ChatKitModule,
+    AiseModule,
+    DebateModule,
   ],
 })
 export class AppModule {}
