@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Music, X } from 'lucide-react';
 import { useLanguage } from '@/i18n/LanguageContext';
 import { createCheckIn, getToken, getUser, listCheckIns } from '@/lib/api';
 
@@ -12,6 +12,8 @@ interface DailyCheckInReminderProps {
 
 const DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const CHECKIN_DAY_START_HOUR = 5;
+const NETEASE_PLAYLIST_ID = '3778678';
+const NETEASE_PLAYER_SRC = `https://music.163.com/outchain/player?type=0&id=${NETEASE_PLAYLIST_ID}&auto=0&height=430`;
 
 function getTodayKey(date = new Date()): string {
   // Treat 00:00–04:59 as the previous day (day rolls over at 05:00 local time).
@@ -346,6 +348,76 @@ function CalendarModal({
   );
 }
 
+function MusicModal({
+  open,
+  locale,
+  onClose,
+}: {
+  open: boolean;
+  locale: 'en' | 'zh';
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label={locale === 'zh' ? '网易云音乐' : 'NetEase Music'}
+      onMouseDown={onClose}
+    >
+      <div
+        className="w-full max-w-3xl rounded-2xl bg-white p-4 shadow-xl"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-xs text-gray-500">{locale === 'zh' ? '网易云音乐' : 'NetEase Music'}</div>
+            <div className="truncate text-sm font-semibold text-gray-900">
+              {locale === 'zh' ? '内嵌播放' : 'Embedded player'}
+            </div>
+          </div>
+          <button
+            type="button"
+            className="rounded-lg p-2 text-gray-500 hover:bg-gray-100"
+            onClick={onClose}
+            aria-label={locale === 'zh' ? '关闭' : 'Close'}
+            title={locale === 'zh' ? '关闭' : 'Close'}
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="mt-3 overflow-hidden rounded-xl border border-gray-100">
+          <iframe
+            title="NetEase Cloud Music"
+            src={NETEASE_PLAYER_SRC}
+            className="h-[60vh] w-full min-h-[320px]"
+            allow="autoplay; encrypted-media"
+            frameBorder="0"
+          />
+        </div>
+
+        <div className="mt-3 text-xs text-gray-500">
+          {locale === 'zh'
+            ? '提示：浏览器可能会阻止自动播放，需要点击播放器内的播放按钮。'
+            : 'Tip: Browsers may block autoplay; click play inside the player.'}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function DailyCheckInReminder({ collapsed, userName }: DailyCheckInReminderProps) {
   const { t, locale } = useLanguage();
 
@@ -378,6 +450,7 @@ export default function DailyCheckInReminder({ collapsed, userName }: DailyCheck
 
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [viewMonth, setViewMonth] = useState(() => startOfMonth(new Date()));
+  const [musicOpen, setMusicOpen] = useState(false);
 
   useEffect(() => {
     const loadHistory = () => {
@@ -536,6 +609,9 @@ export default function DailyCheckInReminder({ collapsed, userName }: DailyCheck
   const tooltip = checkedInToday ? t('checkin.done') : `${t('checkin.reminder')} · ${todayLabel}`;
   const calendarTitle = t('checkin.calendarTitle');
   const resetTooltip = locale === 'zh' ? '恢复为未打卡' : 'Reset today';
+  const musicTitle = locale === 'zh' ? '网易云音乐' : 'NetEase Music';
+
+  if (checkedInToday) return null;
 
   return (
     <>
@@ -550,46 +626,59 @@ export default function DailyCheckInReminder({ collapsed, userName }: DailyCheck
         onPrev={() => setViewMonth((m) => addMonths(m, -1))}
         onNext={() => setViewMonth((m) => addMonths(m, 1))}
       />
+      <MusicModal open={musicOpen} locale={locale} onClose={() => setMusicOpen(false)} />
 
       {collapsed ? (
-        <div className="relative flex justify-center py-2">
+        <div className="relative flex flex-col items-center gap-2 py-2">
+          <div className="relative">
+            <button
+              type="button"
+              onClick={!checkedInToday ? handleCheckIn : undefined}
+              className={[
+                'relative flex h-12 w-12 items-center justify-center rounded-xl border transition-colors',
+                checkedInToday ? 'border-gray-100 bg-white' : 'border-amber-200 bg-amber-50 hover:bg-amber-100',
+              ].join(' ')}
+              title={tooltip}
+              aria-label={tooltip}
+            >
+              {isAnimating && (
+                <span className="absolute inset-2 rounded-full bg-amber-300/50 animate-ping" aria-hidden />
+              )}
+              <PandaIcon className={`h-10 w-10 drop-shadow-sm ${isAnimating ? 'panda-wiggle' : ''}`} />
+            </button>
+
+            <div className="absolute left-2 bottom-2">
+              <MiniCalendarButton
+                size="sm"
+                month={monthForToday}
+                checkedSet={checkedSet}
+                todayKey={todayKey}
+                locale={locale}
+                onOpen={openCalendar}
+              />
+            </div>
+          </div>
           <button
             type="button"
-            onClick={!checkedInToday ? handleCheckIn : undefined}
-            className={[
-              'relative flex h-12 w-12 items-center justify-center rounded-xl border transition-colors',
-              checkedInToday ? 'border-gray-100 bg-white' : 'border-amber-200 bg-amber-50 hover:bg-amber-100',
-            ].join(' ')}
-            title={tooltip}
-            aria-label={tooltip}
+            onClick={() => setMusicOpen(true)}
+            className="flex h-10 w-10 items-center justify-center rounded-xl border border-gray-100 bg-white text-gray-600 transition-colors hover:bg-gray-50"
+            title={musicTitle}
+            aria-label={musicTitle}
           >
-            {isAnimating && (
-              <span className="absolute inset-2 rounded-full bg-amber-300/50 animate-ping" aria-hidden />
-            )}
-            <PandaIcon className={`h-10 w-10 drop-shadow-sm ${isAnimating ? 'panda-wiggle' : ''}`} />
+            <Music size={16} />
           </button>
-
-          <div className="absolute left-2 bottom-2">
-            <MiniCalendarButton
-              size="sm"
-              month={monthForToday}
-              checkedSet={checkedSet}
-              todayKey={todayKey}
-              locale={locale}
-              onOpen={openCalendar}
-            />
-          </div>
         </div>
       ) : (
         <div className="px-2 pb-2">
-          <div
-            className={[
-              'relative rounded-2xl border p-3',
-              checkedInToday
-                ? 'border-gray-100 bg-white shadow-sm'
-                : 'border-amber-200 bg-gradient-to-b from-amber-50 to-white shadow-sm',
-            ].join(' ')}
-          >
+          <div className="space-y-3">
+            <div
+              className={[
+                'relative rounded-2xl border p-3',
+                checkedInToday
+                  ? 'border-emerald-200/70 bg-emerald-50/60 shadow-sm'
+                  : 'border-amber-200 bg-gradient-to-b from-amber-50 to-white shadow-sm',
+              ].join(' ')}
+            >
             {checkedInToday && (
               <button
                 type="button"
@@ -652,6 +741,25 @@ export default function DailyCheckInReminder({ collapsed, userName }: DailyCheck
                     onOpen={openCalendar}
                   />
                 </div>
+              </div>
+            </div>
+            </div>
+            <div className="rounded-2xl border border-gray-100 bg-white p-3 shadow-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-xs text-gray-500">{musicTitle}</div>
+                  <div className="truncate text-sm font-semibold text-gray-900">
+                    {locale === 'zh' ? '在应用内打开播放器' : 'Open player in-app'}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setMusicOpen(true)}
+                  className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-50"
+                >
+                  <Music size={14} />
+                  {locale === 'zh' ? '打开' : 'Open'}
+                </button>
               </div>
             </div>
           </div>

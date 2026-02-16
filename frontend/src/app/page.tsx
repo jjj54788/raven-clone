@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { Menu } from 'lucide-react';
 import Sidebar from '@/components/Sidebar';
 import ChatHistory from '@/components/ChatHistory';
 import ChatArea from '@/components/ChatArea';
@@ -8,10 +9,11 @@ import WelcomeScreen from '@/components/WelcomeScreen';
 import { useAuth, useModels, useSessions } from '@/hooks';
 import { sendStreamChat, createSession } from '@/lib/api';
 import { getModelKey } from '@/lib/teams';
+import { useLanguage } from '@/i18n/LanguageContext';
 
 export default function Home() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [historyVisible, setHistoryVisible] = useState(false);
+  const [historyVisible, setHistoryVisible] = useState(true);
   const [loading, setLoading] = useState(false);
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
   const [quotedText, setQuotedText] = useState('');
@@ -21,6 +23,7 @@ export default function Home() {
   const streamAbortRef = useRef<AbortController | null>(null);
   const sendRunIdRef = useRef(0);
 
+  const { t } = useLanguage();
   const { userName, authReady } = useAuth();
   const { models, selectedModel, setSelectedModel } = useModels(authReady);
   const {
@@ -213,7 +216,18 @@ export default function Home() {
         onDeleteSession={removeSession}
       />
 
-      <main className="flex flex-1 flex-col bg-[#FAFAFA]">
+      <main className="relative flex flex-1 flex-col bg-[#FAFAFA]">
+        {!historyVisible && (
+          <button
+            type="button"
+            onClick={() => setHistoryVisible(true)}
+            className="absolute left-4 top-4 z-10 rounded-lg border border-gray-200 bg-white/90 p-2 text-gray-500 shadow-sm backdrop-blur transition-colors hover:bg-white hover:text-gray-700"
+            title={t('sidebar.chatHistory')}
+            aria-label={t('sidebar.chatHistory')}
+          >
+            <Menu size={18} />
+          </button>
+        )}
         {isChatting ? (
           <ChatArea
             messages={messages}

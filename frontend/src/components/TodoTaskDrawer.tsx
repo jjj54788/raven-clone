@@ -15,6 +15,8 @@ interface TodoTaskDrawerProps {
   open: boolean;
   task: TodoTask | null;
   lists: TodoList[];
+  color?: string;
+  onColorChange?: (color: string) => void;
   onClose: () => void;
   onSaved: (task: TodoTask) => void;
   onDeleted: (taskId: string) => void;
@@ -27,33 +29,22 @@ function formatApiError(data: any): string {
   return String(msg);
 }
 
-function pad2(n: number): string {
-  return String(n).padStart(2, '0');
-}
+const COLOR_OPTIONS = ['#ef4444', '#f97316', '#facc15', '#22c55e', '#3b82f6', '#6366f1', '#8b5cf6', '#ec4899', '#9ca3af'];
 
-function toLocalDateKey(date = new Date()): string {
-  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
-}
-
-function toUtcDateKey(iso: string): string {
-  try {
-    return new Date(iso).toISOString().slice(0, 10);
-  } catch {
-    return '';
-  }
-}
-
-function dateKeyToUtcIso(dateKey: string): string {
-  const [y, m, d] = dateKey.split('-').map((x) => Number(x));
-  return new Date(Date.UTC(y, m - 1, d, 0, 0, 0)).toISOString();
-}
-
-export default function TodoTaskDrawer({ open, task, lists, onClose, onSaved, onDeleted }: TodoTaskDrawerProps) {
+export default function TodoTaskDrawer({
+  open,
+  task,
+  lists,
+  color,
+  onColorChange,
+  onClose,
+  onSaved,
+  onDeleted,
+}: TodoTaskDrawerProps) {
   const { t } = useLanguage();
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [dueKey, setDueKey] = useState('');
   const [priority, setPriority] = useState(0);
   const [listId, setListId] = useState('');
   const [status, setStatus] = useState<TodoStatus>('TODO');
@@ -70,7 +61,6 @@ export default function TodoTaskDrawer({ open, task, lists, onClose, onSaved, on
     if (!open || !task) return;
     setTitle(task.title || '');
     setDescription(task.description || '');
-    setDueKey(task.dueAt ? toUtcDateKey(task.dueAt) : '');
     setPriority(task.priority || 0);
     setListId(task.list?.id || '');
     setStatus(task.status || 'TODO');
@@ -108,10 +98,6 @@ export default function TodoTaskDrawer({ open, task, lists, onClose, onSaved, on
       setError(t('todos.requiredTitle'));
       return;
     }
-    if (!dueKey) {
-      setError(t('todos.requiredDueDate'));
-      return;
-    }
 
     setSaving(true);
     setError(null);
@@ -119,7 +105,6 @@ export default function TodoTaskDrawer({ open, task, lists, onClose, onSaved, on
       const payload = {
         title: nextTitle,
         description: description.trim() ? description.trim() : null,
-        dueAt: dueKey ? dateKeyToUtcIso(dueKey) : null,
         priority,
         status,
         listId: listId || undefined,
@@ -196,6 +181,25 @@ export default function TodoTaskDrawer({ open, task, lists, onClose, onSaved, on
             </div>
 
             <div>
+              <label className="mb-1 block text-xs font-semibold text-gray-500">{t('todos.color')}</label>
+              <div className="flex flex-wrap gap-2">
+                {COLOR_OPTIONS.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => onColorChange?.(c)}
+                    className={[
+                      'h-6 w-6 rounded-full border border-gray-200',
+                      color === c ? 'ring-2 ring-purple-500 ring-offset-2' : '',
+                    ].join(' ')}
+                    style={{ backgroundColor: c }}
+                    aria-label={c}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div>
               <label className="mb-1 block text-xs font-semibold text-gray-500">{t('todos.fieldDescription')}</label>
               <textarea
                 value={description}
@@ -205,40 +209,18 @@ export default function TodoTaskDrawer({ open, task, lists, onClose, onSaved, on
               />
             </div>
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div>
-                <label className="mb-1 block text-xs font-semibold text-gray-500">{t('todos.fieldDueDate')}</label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="date"
-                    value={dueKey}
-                    onChange={(e) => setDueKey(e.target.value)}
-                    className="h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-800 focus:border-purple-300 focus:outline-none focus:ring-2 focus:ring-purple-100"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setDueKey(toLocalDateKey())}
-                    className="h-10 shrink-0 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-600 hover:bg-gray-50"
-                    title={t('todos.setToday')}
-                  >
-                    {t('todos.setToday')}
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label className="mb-1 block text-xs font-semibold text-gray-500">{t('todos.fieldPriority')}</label>
-                <select
-                  value={priority}
-                  onChange={(e) => setPriority(Number(e.target.value))}
-                  className="h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-800 focus:border-purple-300 focus:outline-none focus:ring-2 focus:ring-purple-100"
-                >
-                  <option value={0}>{t('todos.priorityNone')}</option>
-                  <option value={1}>{t('todos.priorityLow')}</option>
-                  <option value={2}>{t('todos.priorityMed')}</option>
-                  <option value={3}>{t('todos.priorityHigh')}</option>
-                </select>
-              </div>
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-gray-500">{t('todos.fieldPriority')}</label>
+              <select
+                value={priority}
+                onChange={(e) => setPriority(Number(e.target.value))}
+                className="h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-800 focus:border-purple-300 focus:outline-none focus:ring-2 focus:ring-purple-100"
+              >
+                <option value={0}>{t('todos.priorityNone')}</option>
+                <option value={1}>{t('todos.priorityLow')}</option>
+                <option value={2}>{t('todos.priorityMed')}</option>
+                <option value={3}>{t('todos.priorityHigh')}</option>
+              </select>
             </div>
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

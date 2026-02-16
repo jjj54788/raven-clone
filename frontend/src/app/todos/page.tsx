@@ -30,6 +30,7 @@ import {
   createTodoList,
   createTodoTask,
   deleteTodoTask,
+  getUser,
   listTodoLists,
   listTodoTasks,
   updateTodoTask,
@@ -39,10 +40,13 @@ import {
 
 type TaskFilter = 'open' | 'done' | 'all';
 type ReminderRepeat = 'DAILY' | 'WEEKLY' | 'MONTHLY';
+type SubTask = { id: string; title: string; done: boolean };
+type TaskMeta = { color?: string; reminderTime?: string; subTasks?: SubTask[] };
 
 const DEFAULT_FOCUS_MINUTES = 25;
 const FOCUS_MINUTES_KEY = 'raven_focus_minutes';
 const DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
+const TASK_COLORS = ['#ef4444', '#f97316', '#facc15', '#22c55e', '#3b82f6', '#6366f1', '#8b5cf6', '#ec4899', '#9ca3af'];
 
 function formatApiError(data: any): string {
   const msg = data?.message;
@@ -75,7 +79,10 @@ function dateKeyToUtcIso(dateKey: string): string {
   return new Date(Date.UTC(y, m - 1, d, 0, 0, 0, 0)).toISOString();
 }
 
-function isoToLocalDateKey(iso: string): string {
+function isoToDateKey(iso: string): string {
+  if (!iso) return '';
+  const direct = iso.slice(0, 10);
+  if (DATE_KEY_RE.test(direct)) return direct;
   try {
     return toLocalDateKey(new Date(iso));
   } catch {
@@ -83,12 +90,9 @@ function isoToLocalDateKey(iso: string): string {
   }
 }
 
-function toUtcDateKey(iso: string): string {
-  try {
-    return new Date(iso).toISOString().slice(0, 10);
-  } catch {
-    return '';
-  }
+function dateKeyToUtcEndIso(dateKey: string): string {
+  const { y, m, d } = parseDateKey(dateKey);
+  return new Date(Date.UTC(y, m - 1, d, 23, 59, 59, 999)).toISOString();
 }
 
 function startOfWeekMonday(date: Date): Date {
@@ -168,7 +172,7 @@ function downloadTextFile(content: string, filename: string, mime = 'text/plain'
 function buildMarkdownExport(tasks: TodoTask[], title: string): string {
   const groups: Record<string, TodoTask[]> = {};
   for (const task of tasks) {
-    const dueKey = task.dueAt ? toUtcDateKey(task.dueAt) : '';
+    const dueKey = task.dueAt ? isoToDateKey(task.dueAt) : '';
     const key = DATE_KEY_RE.test(dueKey) ? dueKey : 'no-date';
     if (!groups[key]) groups[key] = [];
     groups[key].push(task);
@@ -224,8 +228,50 @@ function parseImportText(text: string, defaultDateKey: string) {
   return items;
 }
 
+function safeParseTaskMeta(value: string | null): Record<string, TaskMeta> {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return parsed as Record<string, TaskMeta>;
+  } catch {
+    return {};
+  }
+}
+
+function formatReminderRemaining(dateKey: string, time: string, now: number, locale: 'en' | 'zh'): string {
+  if (!DATE_KEY_RE.test(dateKey) || !time) return '';
+  const [hh, mm] = time.split(':').map((x) => Number(x));
+  const { y, m, d } = parseDateKey(dateKey);
+  const target = new Date(y, m - 1, d, hh || 0, mm || 0, 0, 0).getTime();
+  const diff = target - now;
+  if (diff <= 0) return locale === 'zh' ? '已到时间' : 'Due';
+  const totalSeconds = Math.floor(diff / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (locale === 'zh') {
+    const hourPart = hours > 0 ? `${hours}小时` : '';
+    const minutePart = minutes > 0 ? `${minutes}分钟` : '';
+    const secondPart = hours === 0 && minutes === 0 ? `${seconds}秒` : '';
+    return `剩余${hourPart}${minutePart}${secondPart}` || '剩余';
+  }
+  const hourPart = hours > 0 ? `${hours}h ` : '';
+  const minutePart = minutes > 0 ? `${minutes}m ` : '';
+  const secondPart = hours === 0 && minutes === 0 ? `${seconds}s ` : '';
+  return `${hourPart}${minutePart}${secondPart}left`.trim();
+}
+
+function createSubtaskId(): string {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 function MonthOverview({
   open,
+  inline = false,
   month,
   counts,
   locale,
@@ -240,6 +286,7 @@ function MonthOverview({
   onNext,
 }: {
   open: boolean;
+  inline?: boolean;
   month: Date;
   counts: Record<string, number>;
   locale: 'en' | 'zh';
@@ -259,6 +306,124 @@ function MonthOverview({
   if (!open) return null;
 
   const monthTitle = formatMonthTitle(month, locale);
+  const rows: MonthCell[][] = [];
+  for (let i = 0; i < 6; i += 1) {
+    rows.push(cells.slice(i * 7, i * 7 + 7));
+  }
+
+  const table = (
+    <div className="mt-2 overflow-hidden rounded-2xl border border-gray-200 bg-white">
+      <table className="w-full table-fixed border-collapse text-left">
+        <thead>
+          <tr className="bg-white">
+            {weekdays.map((w) => (
+              <th
+                key={w}
+                className="border border-gray-200 px-2 py-2 text-center text-xs font-semibold text-gray-900 sm:text-sm"
+              >
+                {w}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, rowIndex) => (
+            <tr key={`row-${rowIndex}`}>
+              {row.map((cell, colIndex) => {
+                const key = cell ? cell.key : `empty-${rowIndex}-${colIndex}`;
+                const count = cell ? counts[cell.key] || 0 : 0;
+                const isSelected = cell ? cell.key === selectedDateKey : false;
+                const isToday = cell ? cell.key === todayKey : false;
+                const dayClass = isToday
+                  ? 'inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-900 text-[11px] font-semibold text-white'
+                  : isSelected
+                    ? 'text-emerald-700 text-sm font-semibold'
+                    : 'text-gray-900 text-sm font-semibold';
+                return (
+                  <td key={key} className="h-16 align-top border border-gray-200 p-0 sm:h-20">
+                    {cell ? (
+                      <button
+                        type="button"
+                        onClick={() => onSelectDate(cell.key)}
+                        className={[
+                          'relative flex h-full w-full flex-col gap-1 px-2 py-1 text-left text-xs transition-colors',
+                          isSelected ? 'bg-emerald-50' : 'bg-white hover:bg-gray-50',
+                        ].join(' ')}
+                      >
+                        <div className="flex w-full items-center justify-between">
+                          <span className={dayClass}>{cell.day}</span>
+                          {count > 0 && (
+                            <span className="text-[11px] font-semibold text-gray-500">
+                              {count > 99 ? '99+' : count}
+                            </span>
+                          )}
+                        </div>
+                        {count > 0 && <span className="mt-1 h-1 w-6 rounded-full bg-rose-500/70" />}
+                      </button>
+                    ) : (
+                      <div className="h-full w-full bg-gray-50" />
+                    )}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  const content = (
+    <>
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">{title}</p>
+          <p className="truncate text-base font-semibold text-gray-900 sm:text-lg">{monthTitle}</p>
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={onPrev}
+            className="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50"
+            title={locale === 'zh' ? '\u4e0a\u4e2a\u6708' : 'Previous month'}
+            aria-label={locale === 'zh' ? '\u4e0a\u4e2a\u6708' : 'Previous month'}
+          >
+            <ChevronLeft size={16} />
+          </button>
+          <button
+            type="button"
+            onClick={onNext}
+            className="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50"
+            title={locale === 'zh' ? '\u4e0b\u4e2a\u6708' : 'Next month'}
+            aria-label={locale === 'zh' ? '\u4e0b\u4e2a\u6708' : 'Next month'}
+          >
+            <ChevronRight size={16} />
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50"
+            aria-label={locale === 'zh' ? '\u5173\u95ed' : 'Close'}
+            title={locale === 'zh' ? '\u5173\u95ed' : 'Close'}
+          >
+            <X size={16} />
+          </button>
+        </div>
+      </div>
+
+      {table}
+
+      {loading && <div className="mt-2 text-xs text-gray-400">{loadingLabel}</div>}
+    </>
+  );
+
+  if (inline) {
+    return (
+      <div className="w-full rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+        {content}
+      </div>
+    );
+  }
 
   return (
     <div
@@ -271,79 +436,7 @@ function MonthOverview({
         className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-4 shadow-xl"
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between gap-2">
-          <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">{title}</p>
-            <p className="truncate text-sm font-semibold text-gray-900">{monthTitle}</p>
-          </div>
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={onPrev}
-              className="rounded-lg p-2 text-gray-500 hover:bg-gray-100"
-              title={locale === 'zh' ? '上个月' : 'Previous month'}
-              aria-label={locale === 'zh' ? '上个月' : 'Previous month'}
-            >
-              <ChevronLeft size={16} />
-            </button>
-            <button
-              type="button"
-              onClick={onNext}
-              className="rounded-lg p-2 text-gray-500 hover:bg-gray-100"
-              title={locale === 'zh' ? '下个月' : 'Next month'}
-              aria-label={locale === 'zh' ? '下个月' : 'Next month'}
-            >
-              <ChevronRight size={16} />
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-lg p-2 text-gray-500 hover:bg-gray-100"
-              aria-label={locale === 'zh' ? '关闭' : 'Close'}
-              title={locale === 'zh' ? '关闭' : 'Close'}
-            >
-              <X size={16} />
-            </button>
-          </div>
-        </div>
-
-        <div className="mt-3 grid grid-cols-7 gap-2 text-center text-[11px] font-medium text-gray-400">
-          {weekdays.map((w) => (
-            <div key={w}>{w}</div>
-          ))}
-        </div>
-
-        <div className="mt-2 grid grid-cols-7 gap-2 text-center">
-          {cells.map((cell, idx) => {
-            if (!cell) return <div key={idx} className="h-10" aria-hidden />;
-            const count = counts[cell.key] || 0;
-            const isSelected = cell.key === selectedDateKey;
-            const isToday = cell.key === todayKey;
-            return (
-              <button
-                key={cell.key}
-                type="button"
-                onClick={() => onSelectDate(cell.key)}
-                className={[
-                  'relative flex h-10 flex-col items-center justify-center rounded-xl text-sm transition-colors',
-                  isSelected
-                    ? 'bg-purple-600 text-white'
-                    : 'bg-gray-50 text-gray-700 hover:bg-gray-100',
-                  isToday ? 'ring-2 ring-amber-400 ring-offset-1' : '',
-                ].join(' ')}
-              >
-                <span>{cell.day}</span>
-                {count > 0 && (
-                  <span className="absolute bottom-1 right-1 rounded-full bg-purple-100 px-1 text-[10px] font-semibold text-purple-700">
-                    {count > 9 ? '9+' : count}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-
-        {loading && <div className="mt-2 text-xs text-gray-400">{loadingLabel}</div>}
+        {content}
       </div>
     </div>
   );
@@ -386,17 +479,22 @@ export default function TodosPage() {
   const [reminderTime, setReminderTime] = useState('18:00');
   const [reminderError, setReminderError] = useState<string | null>(null);
 
-  const [showMonth, setShowMonth] = useState(false);
+  const [showMonth, setShowMonth] = useState(true);
   const [monthCursor, setMonthCursor] = useState<Date>(() => startOfMonth(new Date()));
   const [monthCounts, setMonthCounts] = useState<Record<string, number>>({});
   const [monthLoading, setMonthLoading] = useState(false);
 
   const [newTitle, setNewTitle] = useState('');
   const [newDescription, setNewDescription] = useState('');
-  const [newDueKey, setNewDueKey] = useState('');
   const [newPriority, setNewPriority] = useState(0);
   const [submitting, setSubmitting] = useState(false);
-  const [newTaskError, setNewTaskError] = useState<string | null>(null);
+
+  const [taskMeta, setTaskMeta] = useState<Record<string, TaskMeta>>({});
+  const [subtaskOpen, setSubtaskOpen] = useState<Record<string, boolean>>({});
+  const [subtaskDrafts, setSubtaskDrafts] = useState<Record<string, string>>({});
+  const [reminderOpenId, setReminderOpenId] = useState<string | null>(null);
+  const [reminderDraft, setReminderDraft] = useState('20:00');
+  const [nowTick, setNowTick] = useState(() => Date.now());
 
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState('');
@@ -412,25 +510,33 @@ export default function TodosPage() {
   const [focusRunning, setFocusRunning] = useState(false);
 
   const quickInputRef = useRef<HTMLInputElement | null>(null);
-  const quickInitRef = useRef(false);
   const reminderRef = useRef<HTMLDivElement | null>(null);
   const exportRef = useRef<HTMLDivElement | null>(null);
   const importFileRef = useRef<HTMLInputElement | null>(null);
+  const reminderPopoverRef = useRef<HTMLDivElement | null>(null);
+
+  const metaKey = useMemo(() => {
+    const user = getUser();
+    const key = String(user?.id || user?.email || userName || 'user').toLowerCase();
+    return `raven_todo_meta:${key}`;
+  }, [userName]);
 
   const selectedListName = useMemo(() => {
     if (selectedListId === 'all') return t('todos.allLists');
     return lists.find((l) => l.id === selectedListId)?.name || t('todos.allLists');
   }, [lists, selectedListId, t]);
 
+  const inboxListId = useMemo(() => lists.find((l) => l.isInbox)?.id, [lists]);
+
   const visibleTasks = useMemo(() => {
-    return tasks.filter((task) => task.dueAt && isoToLocalDateKey(task.dueAt) === selectedDateKey);
+    return tasks.filter((task) => task.dueAt && isoToDateKey(task.dueAt) === selectedDateKey);
   }, [tasks, selectedDateKey]);
 
   const weekCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const task of tasks) {
       if (!task.dueAt) continue;
-      const k = isoToLocalDateKey(task.dueAt);
+      const k = isoToDateKey(task.dueAt);
       if (!k) continue;
       counts[k] = (counts[k] || 0) + 1;
     }
@@ -458,29 +564,14 @@ export default function TodosPage() {
     setLoading(true);
     setError(null);
     try {
-      const weekEnd = addDays(weekStart, 6);
+      const weekStartKey = toLocalDateKey(weekStart);
+      const weekEndKey = toLocalDateKey(addDays(weekStart, 6));
       const data = await listTodoTasks({
         status: filter,
         listId: selectedListId === 'all' ? undefined : selectedListId,
         take: 50,
-        dueAfter: new Date(
-          weekStart.getFullYear(),
-          weekStart.getMonth(),
-          weekStart.getDate(),
-          0,
-          0,
-          0,
-          0,
-        ).toISOString(),
-        dueBefore: new Date(
-          weekEnd.getFullYear(),
-          weekEnd.getMonth(),
-          weekEnd.getDate(),
-          23,
-          59,
-          59,
-          999,
-        ).toISOString(),
+        dueAfter: dateKeyToUtcIso(weekStartKey),
+        dueBefore: dateKeyToUtcEndIso(weekEndKey),
       });
       if ((data as any)?.statusCode) throw new Error(formatApiError(data));
       setTasks(data);
@@ -507,16 +598,16 @@ export default function TodosPage() {
       );
       const data = await listTodoTasks({
         status: filter,
-        listId: selectedListId === 'all' ? undefined : selectedListId,
+        listId: inboxListId || (selectedListId === 'all' ? undefined : selectedListId),
         take: 200,
-        dueAfter: monthStart.toISOString(),
-        dueBefore: monthEnd.toISOString(),
+        dueAfter: dateKeyToUtcIso(toLocalDateKey(monthStart)),
+        dueBefore: dateKeyToUtcEndIso(toLocalDateKey(monthEnd)),
       });
       if ((data as any)?.statusCode) throw new Error(formatApiError(data));
       const counts: Record<string, number> = {};
       for (const task of data) {
         if (!task.dueAt) continue;
-        const k = isoToLocalDateKey(task.dueAt);
+        const k = isoToDateKey(task.dueAt);
         if (!k) continue;
         counts[k] = (counts[k] || 0) + 1;
       }
@@ -528,11 +619,17 @@ export default function TodosPage() {
     }
   };
 
+  const refreshMonthCounts = async () => {
+    if (!showMonth) return;
+    await loadMonthCounts();
+  };
+
   const reloadAll = async () => {
     setError(null);
     try {
       await loadLists();
       await loadTasks();
+      await refreshMonthCounts();
     } catch (e: any) {
       setError(e?.message || 'Request failed');
     }
@@ -549,6 +646,10 @@ export default function TodosPage() {
     loadTasks();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authReady, selectedListId, filter, weekStartKey]);
+
+  useEffect(() => {
+    setTaskMeta(safeParseTaskMeta(localStorage.getItem(metaKey)));
+  }, [metaKey]);
 
   useEffect(() => {
     try {
@@ -578,14 +679,14 @@ export default function TodosPage() {
   }, [focusRunning]);
 
   useEffect(() => {
-    if (!quickAddOpen) {
-      quickInitRef.current = false;
-      return;
-    }
-    if (!quickInitRef.current) {
-      setNewDueKey((prev) => prev || selectedDateKey);
-      quickInitRef.current = true;
-    }
+    const timer = window.setInterval(() => {
+      setNowTick(Date.now());
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!quickAddOpen) return;
     quickInputRef.current?.focus();
   }, [quickAddOpen, selectedDateKey]);
 
@@ -613,7 +714,7 @@ export default function TodosPage() {
     if (!showMonth) return;
     loadMonthCounts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showMonth, monthCursor, selectedListId, filter, authReady]);
+  }, [showMonth, monthCursor, selectedListId, inboxListId, filter, authReady]);
 
   useEffect(() => {
     if (!exportOpen) return;
@@ -633,6 +734,25 @@ export default function TodosPage() {
       window.removeEventListener('keydown', onKeyDown);
     };
   }, [exportOpen]);
+
+  useEffect(() => {
+    if (!reminderOpenId) return;
+    const onClick = (e: MouseEvent) => {
+      if (!reminderPopoverRef.current) return;
+      if (!reminderPopoverRef.current.contains(e.target as Node)) {
+        setReminderOpenId(null);
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setReminderOpenId(null);
+    };
+    document.addEventListener('mousedown', onClick);
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onClick);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [reminderOpenId]);
 
   useEffect(() => {
     if (!importOpen) return;
@@ -670,9 +790,7 @@ export default function TodosPage() {
     setQuickDone(false);
     setNewTitle('');
     setNewDescription('');
-    setNewDueKey('');
     setNewPriority(0);
-    setNewTaskError(null);
   };
 
   const handlePrevWeek = () => {
@@ -681,6 +799,39 @@ export default function TodosPage() {
 
   const handleNextWeek = () => {
     setSelectedDateKey(toLocalDateKey(addDays(selectedDate, 7)));
+  };
+
+  const persistTaskMeta = (next: Record<string, TaskMeta>) => {
+    try {
+      localStorage.setItem(metaKey, JSON.stringify(next));
+    } catch {
+      // ignore
+    }
+    return next;
+  };
+
+  const updateTaskMeta = (taskId: string, updater: (prev: TaskMeta) => TaskMeta) => {
+    setTaskMeta((prev) => persistTaskMeta({ ...prev, [taskId]: updater(prev[taskId] || {}) }));
+  };
+
+  const removeTaskMeta = (taskId: string) => {
+    setTaskMeta((prev) => {
+      if (!prev[taskId]) return prev;
+      const next = { ...prev };
+      delete next[taskId];
+      return persistTaskMeta(next);
+    });
+  };
+
+  const handleAddSubtask = (taskId: string) => {
+    const draft = (subtaskDrafts[taskId] || '').trim();
+    if (!draft) return;
+    updateTaskMeta(taskId, (prev) => ({
+      ...prev,
+      subTasks: [...(prev.subTasks || []), { id: createSubtaskId(), title: draft, done: false }],
+    }));
+    setSubtaskDrafts((prev) => ({ ...prev, [taskId]: '' }));
+    setSubtaskOpen((prev) => ({ ...prev, [taskId]: false }));
   };
 
   const handleExportWeek = () => {
@@ -708,8 +859,8 @@ export default function TodosPage() {
         status: filter,
         listId: selectedListId === 'all' ? undefined : selectedListId,
         take: 500,
-        dueAfter: monthStart.toISOString(),
-        dueBefore: monthEnd.toISOString(),
+        dueAfter: dateKeyToUtcIso(toLocalDateKey(monthStart)),
+        dueBefore: dateKeyToUtcEndIso(toLocalDateKey(monthEnd)),
       });
       if ((data as any)?.statusCode) throw new Error(formatApiError(data));
       const title = `${selectedListName} · ${formatMonthTitle(monthStart, locale)}`;
@@ -778,6 +929,7 @@ export default function TodosPage() {
     );
     setImportBusy(false);
     await loadTasks();
+    await refreshMonthCounts();
   };
 
   const addTask = async (e: React.FormEvent) => {
@@ -785,17 +937,10 @@ export default function TodosPage() {
     const title = newTitle.trim();
     if (!title) return;
 
-    const dueKey = newDueKey || selectedDateKey;
-    if (!DATE_KEY_RE.test(dueKey)) {
-      setNewTaskError(t('todos.requiredDueDate'));
-      return;
-    }
-
     setSubmitting(true);
     setError(null);
-    setNewTaskError(null);
     try {
-      const dueAt = dueKey ? dateKeyToUtcIso(dueKey) : undefined;
+      const dueAt = dateKeyToUtcIso(selectedDateKey);
       let data = await createTodoTask({
         title,
         description: newDescription.trim() || undefined,
@@ -818,11 +963,11 @@ export default function TodosPage() {
 
       setNewTitle('');
       setNewDescription('');
-      setNewDueKey((prev) => (prev ? prev : selectedDateKey));
       setQuickDone(false);
       setNewPriority(0);
 
       setTasks((prev) => [data, ...prev].slice(0, 50));
+      await refreshMonthCounts();
     } catch (e2: any) {
       setError(e2?.message || 'Request failed');
     } finally {
@@ -837,6 +982,7 @@ export default function TodosPage() {
       const data = await updateTodoTask(task.id, { status: nextStatus });
       if ((data as any)?.statusCode) throw new Error(formatApiError(data));
       setTasks((prev) => prev.map((t0) => (t0.id === task.id ? data : t0)));
+      await refreshMonthCounts();
     } catch (e: any) {
       setTasks((prev) => prev.map((t0) => (t0.id === task.id ? task : t0)));
       setError(e?.message || 'Request failed');
@@ -851,6 +997,8 @@ export default function TodosPage() {
       const data = await deleteTodoTask(task.id);
       if ((data as any)?.statusCode) throw new Error(formatApiError(data));
       if (selectedTask?.id === task.id) setSelectedTask(null);
+      removeTaskMeta(task.id);
+      await refreshMonthCounts();
     } catch (e: any) {
       setTasks(prev);
       setError(e?.message || 'Request failed');
@@ -959,16 +1107,16 @@ export default function TodosPage() {
           </div>
         </div>
 
-        <div className="mx-auto w-full max-w-5xl px-5 py-6 sm:px-8">
+        <div className="mx-auto w-full max-w-6xl px-6 py-5 sm:px-8">
           {error && (
             <div className="mb-4 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
               {error}
             </div>
           )}
 
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-12">
             {/* Lists */}
-            <section className="lg:col-span-4">
+            <section className="lg:col-span-5">
               <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
                 <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">
                   {t('todos.lists')}
@@ -1004,13 +1152,10 @@ export default function TodosPage() {
                   ))}
                 </div>
               </div>
-            </section>
-
-            {/* Tasks */}
-            <section className="lg:col-span-8">
-              <div className="relative">
+              <div className="mt-4">
                 <MonthOverview
                   open={showMonth}
+                  inline
                   month={monthCursor}
                   counts={monthCounts}
                   locale={locale}
@@ -1020,6 +1165,9 @@ export default function TodosPage() {
                   title={t('todos.calendarOverview')}
                   loadingLabel={t('todos.loading')}
                   onSelectDate={(dateKey) => {
+                    if (inboxListId) {
+                      setSelectedListId(inboxListId);
+                    }
                     setSelectedDateKey(dateKey);
                     setShowMonth(false);
                   }}
@@ -1027,8 +1175,12 @@ export default function TodosPage() {
                   onPrev={() => setMonthCursor((m) => addMonths(m, -1))}
                   onNext={() => setMonthCursor((m) => addMonths(m, 1))}
                 />
+              </div>
+            </section>
 
-                <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+            {/* Tasks */}
+            <section className="lg:col-span-7">
+              <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">
                       <h2 className="text-sm font-semibold text-gray-900">{selectedListName}</h2>
@@ -1259,10 +1411,7 @@ export default function TodosPage() {
                           <input
                             ref={quickInputRef}
                             value={newTitle}
-                            onChange={(e) => {
-                              setNewTitle(e.target.value);
-                              if (newTaskError) setNewTaskError(null);
-                            }}
+                            onChange={(e) => setNewTitle(e.target.value)}
                             placeholder={t('todos.newTaskPlaceholder')}
                             className="h-9 min-w-0 flex-1 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-700 placeholder:text-gray-400 focus:border-purple-300 focus:outline-none focus:ring-2 focus:ring-purple-100"
                           />
@@ -1299,23 +1448,7 @@ export default function TodosPage() {
 
                         {quickExpanded && (
                           <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-12">
-                            <div className="sm:col-span-4">
-                              <label className="mb-1 block text-xs font-semibold text-gray-500">
-                                {t('todos.fieldDueDate')}
-                              </label>
-                              <div className="flex items-center gap-2">
-                                <input
-                                  type="date"
-                                  value={newDueKey}
-                                  onChange={(e) => {
-                                    setNewDueKey(e.target.value);
-                                    if (newTaskError) setNewTaskError(null);
-                                  }}
-                                  className="h-9 w-full rounded-lg border border-gray-200 bg-white px-2 text-xs text-gray-700 focus:border-purple-300 focus:outline-none focus:ring-2 focus:ring-purple-100"
-                                />
-                              </div>
-                            </div>
-                            <div className="sm:col-span-4">
+                            <div className="sm:col-span-6">
                               <label className="mb-1 block text-xs font-semibold text-gray-500">
                                 {t('todos.fieldPriority')}
                               </label>
@@ -1356,10 +1489,6 @@ export default function TodosPage() {
                       </button>
                     )}
 
-                    {newTaskError && (
-                      <p className="mt-2 text-xs text-red-600">{newTaskError}</p>
-                    )}
-
                     <div className="mt-3">
                       {loading ? (
                         <p className="py-6 text-center text-sm text-gray-400">{t('todos.loading')}</p>
@@ -1371,12 +1500,19 @@ export default function TodosPage() {
                       ) : (
                         <ul className="space-y-2">
                           {visibleTasks.map((task) => {
-                            const dueKey = task.dueAt ? toUtcDateKey(task.dueAt) : null;
+                            const meta = taskMeta[task.id] || {};
+                            const subTasks = meta.subTasks || [];
+                            const subDone = subTasks.filter((s) => s.done).length;
+                            const dateKey = task.dueAt ? isoToDateKey(task.dueAt) : selectedDateKey;
+                            const remainingLabel = meta.reminderTime
+                              ? formatReminderRemaining(dateKey, meta.reminderTime, nowTick, locale)
+                              : '';
                             const showList = selectedListId === 'all';
                             return (
                               <li
                                 key={task.id}
-                                className="flex items-start gap-3 rounded-xl border border-transparent bg-white px-3 py-2 shadow-sm transition-colors hover:border-gray-200"
+                                className="flex items-start gap-3 rounded-xl border border-transparent bg-white px-3 py-2 pl-2 shadow-sm transition-colors hover:border-gray-200"
+                                style={{ borderLeftWidth: 4, borderLeftColor: meta.color || 'transparent' }}
                               >
                                 <button
                                   type="button"
@@ -1389,17 +1525,73 @@ export default function TodosPage() {
 
                                 <div className="min-w-0 flex-1">
                                   <div className="flex items-start justify-between gap-2">
-                                    <button
-                                      type="button"
-                                      onClick={() => setSelectedTask(task)}
-                                      className={`text-left text-sm font-medium hover:text-purple-700 ${
-                                        task.status === 'DONE' ? 'text-gray-400 line-through' : 'text-gray-900'
-                                      }`}
-                                      title={t('todos.detailsTitle')}
-                                    >
-                                      {task.title}
-                                    </button>
+                                    <div className="min-w-0">
+                                      <button
+                                        type="button"
+                                        onClick={() => setSelectedTask(task)}
+                                        className={`text-left text-sm font-medium hover:text-purple-700 ${
+                                          task.status === 'DONE' ? 'text-gray-400 line-through' : 'text-gray-900'
+                                        }`}
+                                        title={t('todos.detailsTitle')}
+                                      >
+                                        {task.title}
+                                      </button>
+                                      {remainingLabel && (
+                                        <p className="mt-0.5 text-xs text-emerald-600">{remainingLabel}</p>
+                                      )}
+                                    </div>
                                     <div className="flex items-center gap-1">
+                                      <button
+                                        type="button"
+                                        onClick={() => setSubtaskOpen((prev) => ({ ...prev, [task.id]: !prev[task.id] }))}
+                                        className="rounded p-1 text-gray-300 hover:bg-gray-50 hover:text-purple-600"
+                                        title={t('todos.subtaskAdd')}
+                                      >
+                                        <Plus size={14} />
+                                      </button>
+                                      <div className="relative">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setReminderOpenId(task.id);
+                                            setReminderDraft(meta.reminderTime || '20:00');
+                                          }}
+                                          className={`rounded p-1 hover:bg-gray-50 ${
+                                            meta.reminderTime ? 'text-emerald-600' : 'text-gray-300'
+                                          }`}
+                                          title={t('todos.reminderAdd')}
+                                        >
+                                          <Bell size={14} />
+                                        </button>
+                                        {reminderOpenId === task.id && (
+                                          <div
+                                            ref={reminderPopoverRef}
+                                            className="absolute right-0 top-full z-20 mt-2 w-44 rounded-xl border border-gray-200 bg-white p-2 shadow-lg"
+                                          >
+                                            <label className="mb-1 block text-xs font-semibold text-gray-500">
+                                              {t('todos.reminderTime')}
+                                            </label>
+                                            <div className="flex items-center gap-2">
+                                              <input
+                                                type="time"
+                                                value={reminderDraft}
+                                                onChange={(e) => setReminderDraft(e.target.value)}
+                                                className="h-8 w-full rounded-lg border border-gray-200 bg-white px-2 text-xs text-gray-700 focus:border-purple-300 focus:outline-none focus:ring-2 focus:ring-purple-100"
+                                              />
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  updateTaskMeta(task.id, (prev) => ({ ...prev, reminderTime: reminderDraft }));
+                                                  setReminderOpenId(null);
+                                                }}
+                                                className="rounded-lg bg-purple-600 px-2 py-1 text-xs font-semibold text-white hover:bg-purple-700"
+                                              >
+                                                {t('todos.reminderConfirm')}
+                                              </button>
+                                            </div>
+                                          </div>
+                                        )}
+                                      </div>
                                       <button
                                         type="button"
                                         onClick={() => setSelectedTask(task)}
@@ -1425,10 +1617,60 @@ export default function TodosPage() {
                                     </p>
                                   )}
 
+                                  {subTasks.length > 0 && (
+                                    <div className="mt-2 space-y-1">
+                                      {subTasks.map((sub) => (
+                                        <button
+                                          key={sub.id}
+                                          type="button"
+                                          onClick={() =>
+                                            updateTaskMeta(task.id, (prev) => ({
+                                              ...prev,
+                                              subTasks: (prev.subTasks || []).map((item) =>
+                                                item.id === sub.id ? { ...item, done: !item.done } : item,
+                                              ),
+                                            }))
+                                          }
+                                          className="flex items-center gap-2 text-xs text-gray-500"
+                                        >
+                                          <span
+                                            className={[
+                                              'flex h-4 w-4 items-center justify-center rounded border',
+                                              sub.done ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-gray-300',
+                                            ].join(' ')}
+                                          >
+                                            {sub.done && <CheckCircle2 size={12} />}
+                                          </span>
+                                          <span className={sub.done ? 'text-gray-400 line-through' : ''}>{sub.title}</span>
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
+
+                                  {subtaskOpen[task.id] && (
+                                    <div className="mt-2 flex items-center gap-2">
+                                      <input
+                                        value={subtaskDrafts[task.id] || ''}
+                                        onChange={(e) =>
+                                          setSubtaskDrafts((prev) => ({ ...prev, [task.id]: e.target.value }))
+                                        }
+                                        placeholder={t('todos.subtaskPlaceholder')}
+                                        className="h-8 w-full rounded-lg border border-gray-200 bg-white px-2 text-xs text-gray-700 focus:border-purple-300 focus:outline-none focus:ring-2 focus:ring-purple-100"
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() => handleAddSubtask(task.id)}
+                                        className="rounded-lg bg-purple-600 px-2 py-1 text-xs font-semibold text-white hover:bg-purple-700"
+                                      >
+                                        {t('todos.subtaskAdd')}
+                                      </button>
+                                    </div>
+                                  )}
+
                                   <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-400">
-                                    {dueKey && (
-                                      <span className="rounded-full border border-gray-200 bg-white px-2 py-0.5">
-                                        {t('todos.due')} {dueKey}
+                                    {subTasks.length > 0 && (
+                                      <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-700">
+                                        {subDone}/{subTasks.length}
                                       </span>
                                     )}
                                     {task.priority > 0 && (
@@ -1450,7 +1692,6 @@ export default function TodosPage() {
                       )}
                     </div>
                   </div>
-                </div>
               </div>
             </section>
 
@@ -1546,16 +1787,23 @@ export default function TodosPage() {
         open={!!selectedTask}
         task={selectedTask}
         lists={lists}
+        color={selectedTask ? taskMeta[selectedTask.id]?.color : undefined}
+        onColorChange={(color) => {
+          if (!selectedTask) return;
+          updateTaskMeta(selectedTask.id, (prev) => ({ ...prev, color }));
+        }}
         onClose={() => setSelectedTask(null)}
         onSaved={async (updated) => {
           setSelectedTask(updated);
           await loadLists();
           await loadTasks();
+          await refreshMonthCounts();
         }}
         onDeleted={async (_taskId) => {
           setSelectedTask(null);
           await loadLists();
           await loadTasks();
+          await refreshMonthCounts();
         }}
       />
     </div>

@@ -48,21 +48,22 @@ function nodeRadiusY(node: TeamCanvasNode, height: number, width: number) {
 function edgeEndpoints(from: TeamCanvasNode, to: TeamCanvasNode, height: number, width: number) {
   const fromRadius = nodeRadiusY(from, height, width);
   const toRadius = nodeRadiusY(to, height, width);
-  const fromBelow = from.y <= to.y;
+  const fromAbove = from.y <= to.y;
   return {
     x1: from.x,
-    y1: from.y + (fromBelow ? fromRadius : -fromRadius),
+    y1: from.y + (fromAbove ? -fromRadius : fromRadius),
     x2: to.x,
-    y2: to.y + (fromBelow ? -toRadius : toRadius),
+    y2: to.y + (fromAbove ? -toRadius : toRadius),
   };
 }
 
 function curveControlPoint(x1: number, y1: number, x2: number, y2: number) {
   const dx = Math.abs(x2 - x1);
   const dy = Math.abs(y2 - y1);
-  const lift = clamp(4 + dx * 0.12 + dy * 0.08, 4, 14);
+  const lift = clamp(6 + dx * 0.12 + dy * 0.08, 6, 16);
   const isDownward = y2 >= y1;
-  const controlY = isDownward ? Math.min(y1, y2) - lift : Math.max(y1, y2) + lift;
+  const baseY = isDownward ? Math.min(y1, y2) : Math.max(y1, y2);
+  const controlY = clamp(baseY + (isDownward ? -lift : lift), 2, 98);
   const controlX = (x1 + x2) / 2;
   return { cx: controlX, cy: controlY };
 }

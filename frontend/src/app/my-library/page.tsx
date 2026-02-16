@@ -28,7 +28,6 @@ import {
   ExploreCategory,
   exploreItems,
   countBookmarkItemsByCategory,
-  countBookmarksByCategory,
   getExploreCategoryDescription,
   getExploreCategoryLabel,
   loadExploreBookmarkItems,
@@ -158,13 +157,6 @@ export default function MyLibraryPage() {
     return subscribeExploreBookmarks(refresh);
   }, [authReady, userId]);
 
-  const counts = useMemo(() => {
-    if (bookmarkItems.length > 0) {
-      return countBookmarkItemsByCategory(bookmarkItems);
-    }
-    return countBookmarksByCategory(bookmarks);
-  }, [bookmarkItems, bookmarks]);
-
   const exploreItemMap = useMemo(() => {
     const map = new Map<string, ExploreBookmarkItem>();
     exploreItems.forEach((item) => {
@@ -174,11 +166,18 @@ export default function MyLibraryPage() {
   }, []);
 
   const resolvedBookmarks = useMemo<BookmarkDisplayItem[]>(() => {
-    if (bookmarkItems.length > 0) return bookmarkItems;
-    return bookmarks
-      .map((id) => exploreItemMap.get(id))
-      .filter((item): item is ExploreBookmarkItem => Boolean(item));
+    const merged = new Map<string, ExploreBookmarkItem>();
+    bookmarkItems.forEach((item) => merged.set(item.id, item));
+    bookmarks.forEach((id) => {
+      if (!merged.has(id)) {
+        const fallback = exploreItemMap.get(id);
+        if (fallback) merged.set(id, fallback);
+      }
+    });
+    return Array.from(merged.values());
   }, [bookmarkItems, bookmarks, exploreItemMap]);
+
+  const counts = useMemo(() => countBookmarkItemsByCategory(resolvedBookmarks), [resolvedBookmarks]);
 
   const sortedBookmarks = useMemo(() => {
     const items = [...resolvedBookmarks];
@@ -441,112 +440,223 @@ export default function MyLibraryPage() {
               </div>
             ) : (
               <>
-                <section>
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <h2 className="text-base font-semibold text-gray-900">{uiText.sections.dataSources}</h2>
-                    <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
-                      RAG OK
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                    {externalSources.map((source) => {
-                      const Icon = source.icon;
-                      return (
-                        <div key={source.id} className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="flex items-start gap-3">
-                              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gray-100 text-gray-600">
-                                <Icon size={18} />
+                {showOverview && (
+                  <>
+                    <section>
+                      <div className="mb-3 flex items-center justify-between gap-3">
+                        <h2 className="text-base font-semibold text-gray-900">{uiText.sections.dataSources}</h2>
+                        <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+                          RAG OK
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                        {externalSources.map((source) => {
+                          const Icon = source.icon;
+                          return (
+                            <div key={source.id} className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="flex items-start gap-3">
+                                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gray-100 text-gray-600">
+                                    <Icon size={18} />
+                                  </div>
+                                  <div>
+                                    <p className="text-sm font-semibold text-gray-900">{source.name}</p>
+                                    <p className="mt-1 text-xs text-gray-500">{source.description}</p>
+                                  </div>
+                                </div>
+                                <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[11px] font-semibold text-gray-600">
+                                  {source.status}
+                                </span>
                               </div>
-                              <div>
-                                <p className="text-sm font-semibold text-gray-900">{source.name}</p>
-                                <p className="mt-1 text-xs text-gray-500">{source.description}</p>
+                              <button
+                                type="button"
+                                className="mt-3 w-full rounded-xl bg-purple-600 px-3 py-2 text-sm font-semibold text-white hover:bg-purple-700"
+                              >
+                                {uiText.actions.connect}
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </section>
+
+                    <section>
+                      <h2 className="mb-3 text-base font-semibold text-gray-900">{uiText.sections.platform}</h2>
+                      <div className="grid grid-cols-1 gap-4 md:grid-cols-5">
+                        {platformCards.map((card) => {
+                          const Icon = card.icon;
+                          return (
+                            <div key={card.id} className="rounded-2xl border border-gray-200 bg-white p-4 text-center shadow-sm">
+                              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-gray-100 text-gray-600">
+                                <Icon size={20} />
+                              </div>
+                              <p className="mt-3 text-sm font-semibold text-gray-900">{card.title}</p>
+                              <p className="mt-1 text-xs text-gray-500">{card.desc}</p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </section>
+
+                    <section>
+                      <div className="mb-3 flex items-center justify-between gap-3">
+                        <h2 className="text-base font-semibold text-gray-900">{uiText.sections.explore}</h2>
+                        <span className="text-xs text-gray-500">{uiText.hints.explore}</span>
+                      </div>
+                      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                        {(['youtube', 'paper', 'blog', 'report', 'policy', 'news'] as ExploreCategory[]).map((cat) => {
+                          const Icon = CATEGORY_ICON[cat];
+                          return (
+                            <Link
+                              key={cat}
+                              href={`/ai-explore?tab=${cat}`}
+                              className="group rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className={`flex h-12 w-12 items-center justify-center rounded-2xl ${CATEGORY_BG[cat]} text-white shadow-sm`}>
+                                  <Icon size={18} />
+                                </div>
+                                <div className="text-right">
+                                  <p className="text-xs text-gray-400">{uiText.platformCards.bookmarks.title}</p>
+                                  <p className="text-lg font-semibold text-gray-900">{counts[cat] ?? 0}</p>
+                                </div>
+                              </div>
+                              <h3 className="mt-3 text-sm font-semibold text-gray-900">
+                                {getExploreCategoryLabel(cat, locale)}
+                              </h3>
+                              <p className="mt-1 text-xs text-gray-500">
+                                {getExploreCategoryDescription(cat, locale)}
+                              </p>
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    </section>
+                  </>
+                )}
+
+                {showBookmarks && (
+                  <section>
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div>
+                        <h2 className="text-base font-semibold text-gray-900">{uiText.sections.bookmarks}</h2>
+                        <p className="mt-1 text-xs text-gray-500">{uiText.hints.explore}</p>
+                      </div>
+                      <span className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-xs font-semibold text-gray-600">
+                        {sortedBookmarks.length}
+                      </span>
+                    </div>
+                    {sortedBookmarks.length === 0 ? (
+                      <div className="rounded-2xl border border-gray-200 bg-white p-10 text-center text-sm text-gray-400">
+                        {uiText.hints.noBookmarks}
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {sortedBookmarks.map((item) => {
+                          const Icon = CATEGORY_ICON[item.category];
+                          const title = locale === 'zh' ? item.title.zh : item.title.en;
+                          const summary = locale === 'zh' ? item.summary.zh : item.summary.en;
+                          const href = safeUrl(item.url);
+                          const domain = getDomain(item.url);
+                          return (
+                            <div
+                              key={item.id}
+                              className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
+                            >
+                              <div className="flex items-start gap-4">
+                                {item.thumbnailUrl ? (
+                                  <div className="h-[90px] w-[160px] overflow-hidden rounded-2xl border border-gray-200 bg-gray-100">
+                                    <img
+                                      src={item.thumbnailUrl}
+                                      alt={title}
+                                      className="h-full w-full object-cover"
+                                      loading="lazy"
+                                    />
+                                  </div>
+                                ) : (
+                                  <div className={`flex h-16 w-16 items-center justify-center rounded-2xl ${CATEGORY_BG[item.category]} text-white shadow-sm`}>
+                                    <Icon size={22} />
+                                  </div>
+                                )}
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                                    <span>{formatDate(item.publishedAt, locale)}</span>
+                                    {item.source ? (
+                                      <>
+                                        <span className="h-1 w-1 rounded-full bg-gray-300" />
+                                        <span>{item.source}</span>
+                                      </>
+                                    ) : null}
+                                    {item.channel ? (
+                                      <>
+                                        <span className="h-1 w-1 rounded-full bg-gray-300" />
+                                        <span>{item.channel}</span>
+                                      </>
+                                    ) : null}
+                                  </div>
+                                  {href ? (
+                                    <a
+                                      href={href}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="mt-1 line-clamp-2 text-base font-semibold text-gray-900 hover:text-purple-700"
+                                    >
+                                      {title}
+                                    </a>
+                                  ) : (
+                                    <h3 className="mt-1 line-clamp-2 text-base font-semibold text-gray-900">{title}</h3>
+                                  )}
+                                  <p className="mt-2 line-clamp-2 text-sm text-gray-600">{summary}</p>
+
+                                  <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                                    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 ${CATEGORY_PILL[item.category]}`}>
+                                      <Icon size={12} />
+                                      {getExploreCategoryLabel(item.category, locale)}
+                                    </span>
+                                    {domain ? (
+                                      <span className="rounded-full border border-gray-200 bg-white px-2 py-0.5 text-gray-500">
+                                        {domain}
+                                      </span>
+                                    ) : null}
+                                    {item.tags.map((tag) => (
+                                      <span key={tag} className={`rounded-full border px-2 py-0.5 ${tagClass(tag)}`}>
+                                        {tag}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
                               </div>
                             </div>
-                            <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[11px] font-semibold text-gray-600">
-                              {source.status}
-                            </span>
-                          </div>
-                          <button
-                            type="button"
-                            className="mt-3 w-full rounded-xl bg-purple-600 px-3 py-2 text-sm font-semibold text-white hover:bg-purple-700"
-                          >
-                            {uiText.actions.connect}
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </section>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </section>
+                )}
 
-                <section>
-                  <h2 className="mb-3 text-base font-semibold text-gray-900">{uiText.sections.platform}</h2>
-                  <div className="grid grid-cols-1 gap-4 md:grid-cols-5">
-                    {platformCards.map((card) => {
-                      const Icon = card.icon;
-                      return (
-                        <div key={card.id} className="rounded-2xl border border-gray-200 bg-white p-4 text-center shadow-sm">
-                          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-gray-100 text-gray-600">
-                            <Icon size={20} />
-                          </div>
-                          <p className="mt-3 text-sm font-semibold text-gray-900">{card.title}</p>
-                          <p className="mt-1 text-xs text-gray-500">{card.desc}</p>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </section>
-
-                <section>
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <h2 className="text-base font-semibold text-gray-900">{uiText.sections.explore}</h2>
-                    <span className="text-xs text-gray-500">{uiText.hints.explore}</span>
-                  </div>
-                  <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                    {(['youtube', 'paper', 'blog', 'report', 'policy', 'news'] as ExploreCategory[]).map((cat) => {
-                      const Icon = CATEGORY_ICON[cat];
-                      return (
-                        <Link
-                          key={cat}
-                          href={`/ai-explore?tab=${cat}`}
-                          className="group rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className={`flex h-12 w-12 items-center justify-center rounded-2xl ${CATEGORY_BG[cat]} text-white shadow-sm`}>
-                              <Icon size={18} />
-                            </div>
-                            <div className="text-right">
-                              <p className="text-xs text-gray-400">{uiText.platformCards.bookmarks.title}</p>
-                              <p className="text-lg font-semibold text-gray-900">{counts[cat] ?? 0}</p>
-                            </div>
-                          </div>
-                          <h3 className="mt-3 text-sm font-semibold text-gray-900">
-                            {getExploreCategoryLabel(cat, locale)}
-                          </h3>
-                          <p className="mt-1 text-xs text-gray-500">
-                            {getExploreCategoryDescription(cat, locale)}
-                          </p>
-                        </Link>
-                      );
-                    })}
-                  </div>
-                </section>
-
-                <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-                  <div className="flex items-start gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-purple-100 text-purple-700">
-                      <Database size={18} />
+                {showOverview && (
+                  <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-purple-100 text-purple-700">
+                        <Database size={18} />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-semibold text-gray-900">{uiText.sections.usage}</h3>
+                        <ol className="mt-2 list-decimal space-y-1 pl-4 text-xs text-gray-500">
+                          {uiText.usageSteps.map((step) => (
+                            <li key={step}>{step}</li>
+                          ))}
+                        </ol>
+                      </div>
                     </div>
-                    <div>
-                      <h3 className="text-sm font-semibold text-gray-900">{uiText.sections.usage}</h3>
-                      <ol className="mt-2 list-decimal space-y-1 pl-4 text-xs text-gray-500">
-                        {uiText.usageSteps.map((step) => (
-                          <li key={step}>{step}</li>
-                        ))}
-                      </ol>
-                    </div>
+                  </section>
+                )}
+
+                {!showOverview && !showBookmarks && (
+                  <div className="rounded-2xl border border-gray-200 bg-white p-10 text-center text-sm text-gray-400">
+                    {uiText.hints.emptyTab}
                   </div>
-                </section>
+                )}
               </>
             )}
           </div>

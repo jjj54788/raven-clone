@@ -23,14 +23,6 @@ function formatApiError(data: any): string {
   return String(msg);
 }
 
-function toUtcDateKey(iso: string): string {
-  try {
-    return new Date(iso).toISOString().slice(0, 10);
-  } catch {
-    return '';
-  }
-}
-
 export default function TodoWidget({ collapsed }: TodoWidgetProps) {
   const { t } = useLanguage();
   const [overview, setOverview] = useState<TodoOverview>({ openCount: 0, topTasks: [] });
@@ -38,8 +30,6 @@ export default function TodoWidget({ collapsed }: TodoWidgetProps) {
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const todayKey = new Date().toISOString().slice(0, 10);
 
   const loadOverview = async () => {
     setLoading(true);
@@ -172,14 +162,6 @@ export default function TodoWidget({ collapsed }: TodoWidgetProps) {
           ) : (
             <ul className="space-y-1">
               {topTasks.map((task) => {
-                const dueKey = task.dueAt ? toUtcDateKey(task.dueAt) : null;
-                const dueState = !dueKey
-                  ? null
-                  : dueKey < todayKey
-                    ? 'overdue'
-                    : dueKey === todayKey
-                      ? 'today'
-                      : 'future';
                 return (
                   <li
                     key={task.id}
@@ -197,27 +179,13 @@ export default function TodoWidget({ collapsed }: TodoWidgetProps) {
                       <p className={`text-sm ${task.status === 'DONE' ? 'text-gray-400 line-through' : 'text-gray-700'}`}>
                         {task.title}
                       </p>
-                      <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px] text-gray-400">
-                        {dueKey && (
-                          <span
-                            className={[
-                              'rounded-full border px-2 py-0.5',
-                              dueState === 'overdue'
-                                ? 'border-rose-200 bg-rose-50 text-rose-700'
-                                : dueState === 'today'
-                                  ? 'border-amber-200 bg-amber-50 text-amber-800'
-                                  : 'border-gray-200 bg-white text-gray-500',
-                            ].join(' ')}
-                          >
-                            {t('todos.due')} {dueKey}
-                          </span>
-                        )}
-                        {task.priority > 0 && (
+                      {task.priority > 0 && (
+                        <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px] text-gray-400">
                           <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-amber-700">
                             {t('todos.priorityLabel').replace('{p}', String(task.priority))}
                           </span>
-                        )}
-                      </div>
+                        </div>
+                      )}
                     </div>
                   </li>
                 );
