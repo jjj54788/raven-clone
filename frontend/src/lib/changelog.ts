@@ -16,9 +16,50 @@ export interface ReleaseNote {
 // Keep newest first. This is a lightweight, editable data source.
 export const RELEASES: ReleaseNote[] = [
   {
-    version: 'v0.4.4',
+    version: 'v0.5.0',
     date: '2026-02-15',
     latest: true,
+    changes: [
+      {
+        type: 'feature',
+        en: 'Bring your own AI API keys for chat',
+        zh: '\u652f\u6301\u81ea\u5e26 AI Key \u8fdb\u884c\u5bf9\u8bdd',
+      },
+      {
+        type: 'improvement',
+        en: 'Add global dark mode synced to profile settings',
+        zh: '\u65b0\u589e\u5168\u5c40\u6697\u8272\u6a21\u5f0f\uff0c\u5e76\u4e0e\u4e2a\u4eba\u8bbe\u7f6e\u540c\u6b65',
+      },
+      {
+        type: 'feature',
+        en: 'Introduce integration connect flows for Notion, Google Drive, and Feishu',
+        zh: '\u65b0\u589e Notion / Google Drive / \u98de\u4e66\u96c6\u6210\u8fde\u63a5',
+      },
+      {
+        type: 'improvement',
+        en: 'Add YouTube Explore RSS fallback and sample data notice',
+        zh: 'YouTube \u63a2\u7d22\u652f\u6301 RSS \u964d\u7ea7\u4e0e\u793a\u4f8b\u6570\u636e\u63d0\u793a',
+      },
+      {
+        type: 'fix',
+        en: 'Fix todo date filtering across week/month views',
+        zh: '\u4fee\u590d\u5f85\u529e\u5728\u5468/\u6708\u89c6\u56fe\u4e2d\u7684\u65e5\u671f\u7b5b\u9009\u504f\u5dee',
+      },
+      {
+        type: 'feature',
+        en: 'Add colors, reminders, and subtasks for Todos',
+        zh: '\u65b0\u589e\u5f85\u529e\u989c\u8272\u3001\u63d0\u9192\u4e0e\u5b50\u4efb\u52a1',
+      },
+      {
+        type: 'improvement',
+        en: 'Persist richer explore bookmarks in My Library',
+        zh: '\u652f\u6301\u4fdd\u5b58\u66f4\u4e30\u5bcc\u7684\u6536\u85cf\u4fe1\u606f\uff0c\u5e76\u5728\u6211\u7684\u8d44\u6599\u5e93\u4e2d\u5c55\u793a',
+      },
+    ],
+  },
+  {
+    version: 'v0.4.4',
+    date: '2026-02-15',
     changes: [
       {
         type: 'feature',
