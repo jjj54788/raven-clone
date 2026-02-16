@@ -1,6 +1,6 @@
 # Backend Notes (NestJS + Prisma)
 
-Last updated: 2026-02-15
+Last updated: 2026-02-16
 
 ## Structure / Entry Points
 
@@ -128,6 +128,12 @@ prisma/migrations/20260215223000_add_teams/
 prisma/migrations/20260215223000_add_teams/migration.sql
 prisma/migrations/20260215234500_add_user_profile_fields/
 prisma/migrations/20260215234500_add_user_profile_fields/migration.sql
+prisma/migrations/20260216090000_add_integration_connections/
+prisma/migrations/20260216090000_add_integration_connections/migration.sql
+prisma/migrations/20260216093000_add_aise_workflow/
+prisma/migrations/20260216093000_add_aise_workflow/migration.sql
+prisma/migrations/20260216120000_add_debate/
+prisma/migrations/20260216120000_add_debate/migration.sql
 prisma/migrations/migration_lock.toml
 prisma/schema.prisma
 prisma/seed.ts

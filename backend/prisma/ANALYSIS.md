@@ -1,6 +1,6 @@
 # Prisma Schema / Migrations Notes
 
-Last updated: 2026-02-15
+Last updated: 2026-02-16
 
 ## Current Schema
 
@@ -77,6 +77,12 @@ migrations/20260215223000_add_teams/
 migrations/20260215223000_add_teams/migration.sql
 migrations/20260215234500_add_user_profile_fields/
 migrations/20260215234500_add_user_profile_fields/migration.sql
+migrations/20260216090000_add_integration_connections/
+migrations/20260216090000_add_integration_connections/migration.sql
+migrations/20260216093000_add_aise_workflow/
+migrations/20260216093000_add_aise_workflow/migration.sql
+migrations/20260216120000_add_debate/
+migrations/20260216120000_add_debate/migration.sql
 migrations/migration_lock.toml
 schema.prisma
 seed.ts
