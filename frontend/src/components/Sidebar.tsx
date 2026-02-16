@@ -6,8 +6,8 @@ import { usePathname } from 'next/navigation';
 import {
   Settings, Search, BookOpen, Eye, FlaskConical,
   FileText, Users, Target, LayoutGrid, PenTool,
-  Store, Bell, Globe, ChevronLeft, ChevronRight, Monitor, Menu, LogOut, Shield, ListTodo,
-  User, Wallet, CheckCircle2,
+  Store, Bell, Globe, ChevronLeft, ChevronRight, Monitor, Menu, LogOut, Shield, ListTodo, MessageSquare,
+  User, Wallet, CheckCircle2, Workflow,
 } from 'lucide-react';
 import { clearToken, getUser } from '@/lib/api';
 import { useLanguage } from '@/i18n/LanguageContext';
@@ -69,7 +69,11 @@ export default function Sidebar({ collapsed, onToggle, onShowHistory, userName }
   const menuSections = [
     {
       titleKey: 'sidebar.aiEngine',
-      items: [{ icon: Settings, labelKey: 'sidebar.aiAsk', href: '/', active: pathname === '/' }],
+      items: [
+        { icon: Settings, labelKey: 'sidebar.aiAsk', href: '/', active: pathname === '/' },
+        { icon: MessageSquare, labelKey: 'sidebar.aiAskNative', href: '/ai-native', active: pathname.startsWith('/ai-native') },
+        { icon: Workflow, labelKey: 'sidebar.aise', href: '/aise', active: pathname.startsWith('/aise') },
+      ],
     },
     {
       titleKey: 'sidebar.knowledge',
@@ -82,7 +86,7 @@ export default function Sidebar({ collapsed, onToggle, onShowHistory, userName }
       titleKey: 'sidebar.researchAnalysis',
       items: [
         { icon: Eye, labelKey: 'sidebar.aiInsights', href: '/ai-insights', active: pathname.startsWith('/ai-insights') },
-        { icon: FlaskConical, labelKey: 'sidebar.aiResearch', href: '/coming-soon' },
+        { icon: FlaskConical, labelKey: 'sidebar.aiResearch', href: '/ai-research', active: pathname.startsWith('/ai-research') },
         { icon: FileText, labelKey: 'sidebar.aiReports', href: '/coming-soon' },
         { icon: Users, labelKey: 'sidebar.myTeams', href: '/teams', active: pathname.startsWith('/teams') },
       ],

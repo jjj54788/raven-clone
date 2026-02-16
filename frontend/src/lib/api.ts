@@ -47,6 +47,8 @@ export type ProfileIntegrations = {
   feishuOpenId: string;
 };
 
+export type IntegrationProvider = 'notion' | 'google-drive' | 'feishu';
+
 export function getUser(): RavenUser | null {
   if (typeof window === 'undefined') return null;
   const raw = localStorage.getItem('raven_user');
@@ -138,6 +140,136 @@ export async function updateProfile(payload: {
 }) {
   return apiFetch('/auth/me', {
     method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getIntegrationAuthUrl(provider: IntegrationProvider) {
+  return apiFetch(`/integrations/${provider}/auth-url`);
+}
+
+export async function bindFeishuOpenId(openId: string) {
+  return apiFetch('/integrations/feishu/open-id', {
+    method: 'PATCH',
+    body: JSON.stringify({ openId }),
+  });
+}
+
+export async function disconnectIntegration(provider: IntegrationProvider) {
+  return apiFetch(`/integrations/${provider}`, { method: 'DELETE' });
+}
+
+// ---- ChatKit ----
+export async function createChatKitSession() {
+  const data = await apiFetch('/chatkit/session', { method: 'POST' });
+  if (!data || typeof data !== 'object') {
+    throw new Error('ChatKit session unavailable');
+  }
+  const secret = (data as any)?.client_secret;
+  if (!secret || typeof secret !== 'string') {
+    const msg = (data as any)?.message;
+    throw new Error(typeof msg === 'string' ? msg : 'ChatKit session unavailable');
+  }
+  return data as { client_secret: string; expires_at?: string | null };
+}
+
+export async function getChatKitStatus() {
+  const data = await apiFetch('/chatkit/status');
+  if (!data || typeof data !== 'object') {
+    throw new Error('ChatKit status unavailable');
+  }
+  return data as {
+    hasApiKey: boolean;
+    hasWorkflowId: boolean;
+    hasWorkflowVersion: boolean;
+    ready: boolean;
+  };
+}
+
+// ---- AISE ----
+export type AiseStageId = 'requirements' | 'design' | 'implementation' | 'testing' | 'acceptance';
+export type AiseStageStatus = 'done' | 'active' | 'review' | 'pending';
+export type AiseRequirementStatus = 'done' | 'active' | 'review' | 'blocked';
+export type AiseGateStatus = 'pass' | 'pending' | 'running' | 'queued';
+
+export type AiseMetricId = 'lead_time' | 'deploy_frequency' | 'change_failure_rate' | 'mttr';
+export type AiseGateId = 'unit_tests' | 'code_review' | 'security_scan' | 'deployment_check';
+export type AiseAcceptanceId = 'coverage' | 'defect_closure' | 'signoff';
+
+export interface AiseMetric {
+  id: AiseMetricId;
+  value: string;
+  hint: string;
+}
+
+export interface AisePipelineStage {
+  id: AiseStageId;
+  status: AiseStageStatus;
+  wip: string;
+  wipCurrent?: number;
+  wipLimit?: number;
+  count: string;
+  itemsCount?: number;
+  desc: string;
+}
+
+export interface AiseQualityGate {
+  id: AiseGateId;
+  status: AiseGateStatus;
+  value: string;
+}
+
+export interface AiseAcceptanceItem {
+  id: AiseAcceptanceId;
+  value: string;
+}
+
+export interface AiseRequirement {
+  id: string;
+  title: string;
+  owner: string;
+  stageId: AiseStageId;
+  status: AiseRequirementStatus;
+  progress: number;
+  updatedAt: string;
+}
+
+export interface AiseFocusTrace {
+  stageId: AiseStageId;
+  status: AiseStageStatus;
+}
+
+export interface AiseFocus {
+  requirementId: string;
+  title: string;
+  description: string;
+  stageId: AiseStageId;
+  status: AiseRequirementStatus;
+  trace: AiseFocusTrace[];
+}
+
+export interface AiseOverview {
+  asOf: string;
+  metrics: AiseMetric[];
+  pipeline: AisePipelineStage[];
+  qualityGates: AiseQualityGate[];
+  acceptance: AiseAcceptanceItem[];
+  requirements: AiseRequirement[];
+  focus: AiseFocus;
+  ownersCount: number;
+}
+
+export async function getAiseOverview(): Promise<AiseOverview> {
+  return apiFetch('/aise/overview');
+}
+
+export type AiseOverviewUpdate = Partial<
+  Pick<AiseOverview, 'metrics' | 'pipeline' | 'qualityGates' | 'acceptance' | 'requirements' | 'focus'>
+>;
+
+export async function updateAiseOverview(payload: AiseOverviewUpdate): Promise<AiseOverview> {
+  return apiFetch('/aise/overview', {
+    method: 'PUT',
     body: JSON.stringify(payload),
   });
 }
@@ -344,6 +476,133 @@ export async function sendStreamChat(
     }
     onError(err.message || 'Network error');
   }
+}
+
+// ---- Debate (AI Research) ----
+export type DebateAgent = {
+  id: string;
+  name: string;
+  profile: string;
+  description?: string | null;
+  color?: string | null;
+  category: 'DEBATER' | 'EVALUATOR' | 'SPECIALIST';
+  displayOrder?: number;
+};
+
+export type DebateSession = {
+  id: string;
+  topic: string;
+  agentIds: string[];
+  maxRounds: number;
+  currentRound: number;
+  status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'ERROR';
+  summary?: string | null;
+  keyPoints: string[];
+  consensus?: string | null;
+  disagreements: string[];
+  bestViewpoint?: string | null;
+  mostInnovative?: string | null;
+  goldenQuotes: string[];
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string | null;
+};
+
+export type DebateMessage = {
+  id: string;
+  sessionId: string;
+  senderId: string;
+  content: string;
+  round: number;
+  logicScore?: number | null;
+  innovationScore?: number | null;
+  expressionScore?: number | null;
+  totalScore?: number | null;
+  scoringReasons?: { logic?: string; innovation?: string; expression?: string } | null;
+  createdAt: string;
+};
+
+export async function getDebateAgents(): Promise<DebateAgent[]> {
+  return apiFetch('/debate/agents');
+}
+
+export async function listDebateSessions(): Promise<DebateSession[]> {
+  return apiFetch('/debate/sessions');
+}
+
+export async function createDebateSession(payload: {
+  topic: string;
+  agentIds: string[];
+  maxRounds?: number;
+}): Promise<DebateSession> {
+  return apiFetch('/debate/sessions', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getDebateSession(id: string): Promise<DebateSession> {
+  return apiFetch(`/debate/sessions/${id}`);
+}
+
+export async function getDebateMessages(id: string): Promise<DebateMessage[]> {
+  return apiFetch(`/debate/sessions/${id}/messages`);
+}
+
+export async function startDebateSession(id: string): Promise<{ status: string }> {
+  return apiFetch(`/debate/sessions/${id}/start`, { method: 'POST' });
+}
+
+export function subscribeDebateStream(
+  sessionId: string,
+  handlers: {
+    onReady?: () => void;
+    onAgentStatus?: (data: { agentId: string; status: string }) => void;
+    onNewMessage?: (data: DebateMessage) => void;
+    onScoreUpdate?: (data: any) => void;
+    onRoundComplete?: (data: { round: number }) => void;
+    onComplete?: (data: DebateSession) => void;
+    onError?: (message: string) => void;
+  },
+) {
+  const token = getToken();
+  if (!token) throw new Error('Unauthorized');
+
+  const url = `${API_BASE}/debate/sessions/${sessionId}/stream?token=${encodeURIComponent(token)}`;
+  const es = new EventSource(url);
+
+  es.addEventListener('ready', () => handlers.onReady?.());
+  es.addEventListener('agent-status', (event) => {
+    try {
+      handlers.onAgentStatus?.(JSON.parse((event as MessageEvent).data));
+    } catch {}
+  });
+  es.addEventListener('new-message', (event) => {
+    try {
+      handlers.onNewMessage?.(JSON.parse((event as MessageEvent).data));
+    } catch {}
+  });
+  es.addEventListener('score-update', (event) => {
+    try {
+      handlers.onScoreUpdate?.(JSON.parse((event as MessageEvent).data));
+    } catch {}
+  });
+  es.addEventListener('round-complete', (event) => {
+    try {
+      handlers.onRoundComplete?.(JSON.parse((event as MessageEvent).data));
+    } catch {}
+  });
+  es.addEventListener('debate-complete', (event) => {
+    try {
+      handlers.onComplete?.(JSON.parse((event as MessageEvent).data));
+    } catch {}
+  });
+
+  es.addEventListener('error', (event) => {
+    handlers.onError?.('Stream error');
+  });
+
+  return () => es.close();
 }
 
 // ---- Explore ----

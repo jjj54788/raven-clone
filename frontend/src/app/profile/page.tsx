@@ -22,8 +22,11 @@ import Sidebar from '@/components/Sidebar';
 import { useAuth } from '@/hooks';
 import { useLanguage } from '@/i18n/LanguageContext';
 import {
+  bindFeishuOpenId,
+  disconnectIntegration as disconnectIntegrationApi,
   getMe,
   getSessions,
+  getIntegrationAuthUrl,
   getUser,
   setUser,
   updateProfile,
@@ -168,6 +171,11 @@ export default function ProfilePage() {
   const [profileError, setProfileError] = useState<string | null>(null);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [integrationsError, setIntegrationsError] = useState<string | null>(null);
+  const [integrationLoading, setIntegrationLoading] = useState({
+    notion: false,
+    drive: false,
+    feishu: false,
+  });
 
   const [modelKeys, setModelKeys] = useState<ModelKeyMap>({});
   const [apiModal, setApiModal] = useState<{ id: string; label: string } | null>(null);
@@ -183,6 +191,19 @@ export default function ProfilePage() {
     images: 0,
     teams: 0,
   });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get('tab') as ProfileTab | null;
+    if (tab && ['profile', 'settings', 'stats', 'api', 'integrations'].includes(tab)) {
+      setActiveTab(tab);
+    }
+    const error = params.get('error');
+    if (error) {
+      setIntegrationsError(decodeURIComponent(error));
+    }
+  }, []);
 
   const uiText = useMemo(() => {
     if (locale === 'zh') {
@@ -491,6 +512,8 @@ export default function ProfilePage() {
 
   const userBubble = findBubbleOption(USER_BUBBLE_OPTIONS, store.settings.userBubble);
   const aiBubble = findBubbleOption(AI_BUBBLE_OPTIONS, store.settings.aiBubble);
+  const disconnectLabel = locale === 'zh' ? '断开连接' : 'Disconnect';
+  const disconnectingLabel = locale === 'zh' ? '断开中...' : 'Disconnecting...';
 
   const saveProfile = async () => {
     setProfileError(null);
@@ -563,10 +586,9 @@ export default function ProfilePage() {
   };
 
   const updateStoreSettings = (nextSettings: ProfileStore['settings']) => {
-    setStore((prev) => ({
-      ...prev,
-      settings: nextSettings,
-    }));
+    const nextStore: ProfileStore = { ...store, settings: nextSettings };
+    setStore(nextStore);
+    saveProfileStore(userKey, nextStore);
     setSettingsDirty(true);
     if (settingsError) setSettingsError(null);
   };
@@ -578,24 +600,87 @@ export default function ProfilePage() {
     if (integrationsError) setIntegrationsError(null);
   };
 
-  const persistIntegrations = async (nextIntegrations: ProfileStore['integrations']) => {
+  const connectIntegration = async (provider: 'notion' | 'google-drive') => {
+    const loadingKey = provider === 'google-drive' ? 'drive' : 'notion';
+    setIntegrationLoading((prev) => ({ ...prev, [loadingKey]: true }));
     setIntegrationsError(null);
-    const normalized = normalizeIntegrations(nextIntegrations);
     try {
-      const res = await updateProfile({ integrations: normalized });
+      const res = await getIntegrationAuthUrl(provider);
+      const err = readApiErrorMessage(res);
+      if (err) {
+        setIntegrationsError(err);
+        return;
+      }
+      const url = (res as any)?.url;
+      if (!url || typeof url !== 'string') {
+        setIntegrationsError('Invalid authorization URL');
+        return;
+      }
+      window.location.href = url;
+    } catch (error: any) {
+      setIntegrationsError(error?.message || 'Failed to connect integration');
+    } finally {
+      setIntegrationLoading((prev) => ({ ...prev, [loadingKey]: false }));
+    }
+  };
+
+  const bindFeishu = async () => {
+    const openId = store.integrations.feishuOpenId.trim();
+    if (!openId) {
+      setIntegrationsError(locale === 'zh' ? '请输入飞书 Open ID' : 'Please enter your Feishu Open ID');
+      return;
+    }
+    setIntegrationLoading((prev) => ({ ...prev, feishu: true }));
+    setIntegrationsError(null);
+    try {
+      const res = await bindFeishuOpenId(openId);
       const err = readApiErrorMessage(res);
       if (err) {
         setIntegrationsError(err);
         return;
       }
       const data = res as any;
-      const resolvedIntegrations = normalizeIntegrations(data?.integrations ?? normalized);
+      const resolvedIntegrations = normalizeIntegrations(
+        data?.integrations ?? { ...store.integrations, feishuOpenId: openId, feishu: true },
+      );
       const nextStore: ProfileStore = { ...store, integrations: resolvedIntegrations };
       setStore(nextStore);
       saveProfileStore(userKey, nextStore);
       applyUser(data);
     } catch (error: any) {
-      setIntegrationsError(error?.message || 'Failed to save integrations');
+      setIntegrationsError(error?.message || 'Failed to bind Feishu account');
+    } finally {
+      setIntegrationLoading((prev) => ({ ...prev, feishu: false }));
+    }
+  };
+
+  const disconnectIntegration = async (provider: 'notion' | 'google-drive' | 'feishu') => {
+    const loadingKey = provider === 'google-drive' ? 'drive' : provider;
+    setIntegrationLoading((prev) => ({ ...prev, [loadingKey]: true }));
+    setIntegrationsError(null);
+    try {
+      const res = await disconnectIntegrationApi(provider);
+      const err = readApiErrorMessage(res);
+      if (err) {
+        setIntegrationsError(err);
+        return;
+      }
+      const fallbackIntegrations = {
+        ...store.integrations,
+        ...(provider === 'notion' ? { notion: false } : {}),
+        ...(provider === 'google-drive' ? { drive: false } : {}),
+        ...(provider === 'feishu' ? { feishu: false, feishuOpenId: '' } : {}),
+      };
+      const data = res as any;
+      const resolvedIntegrations = normalizeIntegrations(data?.integrations ?? fallbackIntegrations);
+      const nextStore: ProfileStore = { ...store, integrations: resolvedIntegrations };
+      setStore(nextStore);
+      saveProfileStore(userKey, nextStore);
+      applyUser(data);
+    } catch (error: any) {
+      setIntegrationsError(error?.message || 'Failed to disconnect integration');
+    } finally {
+      setIntegrationLoading((prev) => ({ ...prev, [loadingKey]: false }));
     }
   };
 
@@ -1139,7 +1224,7 @@ export default function ProfilePage() {
                       <p className="text-xs text-gray-500">{uiText.integrations.notionDesc}</p>
                     </div>
                     <span className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-xs font-semibold text-gray-600">
-                      {store.integrations.notion ? uiText.integrations.connected : uiText.integrations.comingSoon}
+                      {store.integrations.notion ? uiText.integrations.connected : uiText.integrations.connect}
                     </span>
                   </div>
                   <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-700">
@@ -1151,14 +1236,28 @@ export default function ProfilePage() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => {
-                      const next = { ...store.integrations, notion: !store.integrations.notion };
-                      updateIntegrations(next);
-                      void persistIntegrations(next);
-                    }}
-                    className="mt-4 w-full rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800"
+                    onClick={() => (store.integrations.notion ? disconnectIntegration('notion') : connectIntegration('notion'))}
+                    disabled={integrationLoading.notion}
+                    className={[
+                      'mt-4 w-full rounded-xl px-4 py-2 text-sm font-semibold',
+                      store.integrations.notion
+                        ? integrationLoading.notion
+                          ? 'cursor-not-allowed bg-gray-300'
+                          : 'border border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                        : integrationLoading.notion
+                          ? 'cursor-not-allowed bg-gray-400 text-white'
+                          : 'bg-gray-900 text-white hover:bg-gray-800',
+                    ].join(' ')}
                   >
-                    {uiText.integrations.connectNotion}
+                    {integrationLoading.notion
+                      ? store.integrations.notion
+                        ? disconnectingLabel
+                        : locale === 'zh'
+                          ? '连接中...'
+                          : 'Connecting...'
+                      : store.integrations.notion
+                        ? disconnectLabel
+                        : uiText.integrations.connectNotion}
                   </button>
                 </section>
 
@@ -1169,7 +1268,7 @@ export default function ProfilePage() {
                       <p className="text-xs text-gray-500">{uiText.integrations.driveDesc}</p>
                     </div>
                     <span className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-xs font-semibold text-gray-600">
-                      {store.integrations.drive ? uiText.integrations.connected : uiText.integrations.comingSoon}
+                      {store.integrations.drive ? uiText.integrations.connected : uiText.integrations.connect}
                     </span>
                   </div>
                   <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-700">
@@ -1181,14 +1280,28 @@ export default function ProfilePage() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => {
-                      const next = { ...store.integrations, drive: !store.integrations.drive };
-                      updateIntegrations(next);
-                      void persistIntegrations(next);
-                    }}
-                    className="mt-4 w-full rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                    onClick={() => (store.integrations.drive ? disconnectIntegration('google-drive') : connectIntegration('google-drive'))}
+                    disabled={integrationLoading.drive}
+                    className={[
+                      'mt-4 w-full rounded-xl px-4 py-2 text-sm font-semibold',
+                      store.integrations.drive
+                        ? integrationLoading.drive
+                          ? 'cursor-not-allowed bg-blue-200'
+                          : 'border border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                        : integrationLoading.drive
+                          ? 'cursor-not-allowed bg-blue-300 text-white'
+                          : 'bg-blue-600 text-white hover:bg-blue-700',
+                    ].join(' ')}
                   >
-                    {uiText.integrations.connectDrive}
+                    {integrationLoading.drive
+                      ? store.integrations.drive
+                        ? disconnectingLabel
+                        : locale === 'zh'
+                          ? '连接中...'
+                          : 'Connecting...'
+                      : store.integrations.drive
+                        ? disconnectLabel
+                        : uiText.integrations.connectDrive}
                   </button>
                 </section>
 
@@ -1199,7 +1312,7 @@ export default function ProfilePage() {
                       <p className="text-xs text-gray-500">{uiText.integrations.feishuDesc}</p>
                     </div>
                     <span className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-xs font-semibold text-gray-600">
-                      {store.integrations.feishu ? uiText.integrations.connected : uiText.integrations.comingSoon}
+                      {store.integrations.feishu ? uiText.integrations.connected : uiText.integrations.connect}
                     </span>
                   </div>
 
@@ -1222,14 +1335,28 @@ export default function ProfilePage() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => {
-                      const next = { ...store.integrations, feishu: !store.integrations.feishu };
-                      updateIntegrations(next);
-                      void persistIntegrations(next);
-                    }}
-                    className="mt-4 w-full rounded-xl bg-purple-500 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-600"
+                    onClick={() => (store.integrations.feishu ? disconnectIntegration('feishu') : bindFeishu())}
+                    disabled={integrationLoading.feishu}
+                    className={[
+                      'mt-4 w-full rounded-xl px-4 py-2 text-sm font-semibold',
+                      store.integrations.feishu
+                        ? integrationLoading.feishu
+                          ? 'cursor-not-allowed bg-purple-200'
+                          : 'border border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                        : integrationLoading.feishu
+                          ? 'cursor-not-allowed bg-purple-300 text-white'
+                          : 'bg-purple-500 text-white hover:bg-purple-600',
+                    ].join(' ')}
                   >
-                    {uiText.integrations.connectFeishu}
+                    {integrationLoading.feishu
+                      ? store.integrations.feishu
+                        ? disconnectingLabel
+                        : locale === 'zh'
+                          ? '绑定中...'
+                          : 'Binding...'
+                      : store.integrations.feishu
+                        ? disconnectLabel
+                        : uiText.integrations.connectFeishu}
                   </button>
                 </section>
 
