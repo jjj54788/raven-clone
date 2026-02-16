@@ -11,9 +11,68 @@
   --color-bg: #FAFAFA;
 }
 
+:root.dark {
+  --color-primary: #8B5CF6;
+  --color-primary-light: #312E81;
+  --color-sidebar-bg: #0F172A;
+  --color-sidebar-border: #1F2937;
+  --color-text-primary: #E5E7EB;
+  --color-text-secondary: #9CA3AF;
+  --color-text-muted: #6B7280;
+  --color-bg: #0B0F1A;
+}
+
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   background-color: var(--color-bg);
+}
+
+html.dark body {
+  color: var(--color-text-primary);
+  background-color: var(--color-bg);
+}
+
+html.dark .bg-white {
+  background-color: #111827 !important;
+}
+html.dark .bg-\[\#FAFAFA\] {
+  background-color: #0B0F1A !important;
+}
+html.dark .bg-gray-50 {
+  background-color: #0F172A !important;
+}
+html.dark .bg-gray-100 {
+  background-color: #1F2937 !important;
+}
+html.dark .border-gray-100 {
+  border-color: #1F2937 !important;
+}
+html.dark .border-gray-200 {
+  border-color: #334155 !important;
+}
+html.dark .text-gray-900 {
+  color: #F9FAFB !important;
+}
+html.dark .text-gray-800 {
+  color: #E5E7EB !important;
+}
+html.dark .text-gray-700 {
+  color: #D1D5DB !important;
+}
+html.dark .text-gray-600 {
+  color: #CBD5E1 !important;
+}
+html.dark .text-gray-500 {
+  color: #9CA3AF !important;
+}
+html.dark .text-gray-400 {
+  color: #94A3B8 !important;
+}
+html.dark .text-gray-300 {
+  color: #CBD5E1 !important;
+}
+html.dark .shadow-sm {
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.6) !important;
 }
 
 ::-webkit-scrollbar {
@@ -26,8 +85,14 @@ body {
   background: #D1D5DB;
   border-radius: 3px;
 }
+html.dark ::-webkit-scrollbar-thumb {
+  background: #475569;
+}
 ::-webkit-scrollbar-thumb:hover {
   background: #9CA3AF;
+}
+html.dark ::-webkit-scrollbar-thumb:hover {
+  background: #64748B;
 }
 
 .prose pre {

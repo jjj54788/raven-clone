@@ -1,6 +1,6 @@
 # Frontend Components Notes
 
-Last updated: 2026-02-15
+Last updated: 2026-02-16
 
 ## Components (Reviewed)
 
@@ -55,6 +55,7 @@ teams/EditTeamModal.tsx
 teams/ModelSettingsModal.tsx
 teams/TeamCanvas.tsx
 teams/TeamCard.tsx
+ThemeProvider.tsx
 TodoTaskDrawer.tsx
 TodoWidget.tsx
 WelcomeScreen.tsx

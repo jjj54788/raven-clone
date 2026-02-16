@@ -129,6 +129,7 @@ src/components/teams/EditTeamModal.tsx
 src/components/teams/ModelSettingsModal.tsx
 src/components/teams/TeamCanvas.tsx
 src/components/teams/TeamCard.tsx
+src/components/ThemeProvider.tsx
 src/components/TodoTaskDrawer.tsx
 src/components/TodoWidget.tsx
 src/components/WelcomeScreen.tsx
