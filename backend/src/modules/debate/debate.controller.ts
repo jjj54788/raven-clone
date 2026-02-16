@@ -1,9 +1,11 @@
-import { BadRequestException, Body, Controller, Get, Param, Post, Query, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Patch, Post, Query, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { DebateService } from './debate.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { CreateDebateDto } from './dto/create-debate.dto';
+import { CreateDebateAgentDto } from './dto/create-debate-agent.dto';
+import { UpdateDebateAgentDto } from './dto/update-debate-agent.dto';
 import { AuthService } from '../auth/auth.service';
 
 @Controller('api/v1/debate')
@@ -15,8 +17,24 @@ export class DebateController {
 
   @Get('agents')
   @UseGuards(JwtAuthGuard)
-  async listAgents() {
-    return this.debateService.listAgents();
+  async listAgents(@CurrentUser() userId: string) {
+    return this.debateService.listAgents(userId);
+  }
+
+  @Post('agents')
+  @UseGuards(JwtAuthGuard)
+  async createAgent(@CurrentUser() userId: string, @Body() body: CreateDebateAgentDto) {
+    return this.debateService.createAgent(userId, body);
+  }
+
+  @Patch('agents/:id')
+  @UseGuards(JwtAuthGuard)
+  async updateAgent(
+    @Param('id') id: string,
+    @CurrentUser() userId: string,
+    @Body() body: UpdateDebateAgentDto,
+  ) {
+    return this.debateService.updateAgent(id, userId, body);
   }
 
   @Get('sessions')

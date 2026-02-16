@@ -1,9 +1,12 @@
 import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import type { Response } from 'express';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
 import { DebateStreamService } from './debate.stream';
 import { CreateDebateDto } from './dto/create-debate.dto';
+import { CreateDebateAgentDto } from './dto/create-debate-agent.dto';
+import { UpdateDebateAgentDto } from './dto/update-debate-agent.dto';
 import { DebateAgent, DebateAgentCategory, DebateSessionStatus } from '@prisma/client';
 
 type AgentStatus = 'idle' | 'thinking' | 'speaking' | 'waiting';
@@ -46,9 +49,70 @@ export class DebateService implements OnModuleInit {
     await this.refreshScorers();
   }
 
-  async listAgents() {
+  async listAgents(userId: string) {
     return this.prisma.debateAgent.findMany({
+      where: {
+        OR: [{ userId: null }, { userId }],
+      },
       orderBy: [{ category: 'asc' }, { displayOrder: 'asc' }],
+    });
+  }
+
+  async createAgent(userId: string, dto: CreateDebateAgentDto) {
+    const name = dto.name.trim();
+    const profile = dto.profile.trim();
+    const systemPrompt = dto.systemPrompt.trim();
+    if (!name || !profile || !systemPrompt) {
+      throw new BadRequestException('Agent name, profile, and system prompt are required');
+    }
+    const category = dto.category ?? DebateAgentCategory.DEBATER;
+
+    return this.prisma.debateAgent.create({
+      data: {
+        id: randomUUID(),
+        userId,
+        name,
+        profile,
+        systemPrompt,
+        description: dto.description?.trim() || null,
+        color: dto.color?.trim() || null,
+        category,
+        displayOrder: 99,
+      },
+    });
+  }
+
+  async updateAgent(id: string, userId: string, dto: UpdateDebateAgentDto) {
+    const agent = await this.prisma.debateAgent.findFirst({
+      where: { id, userId },
+    });
+    if (!agent) {
+      throw new NotFoundException('Agent not found');
+    }
+
+    const updates: Record<string, any> = {};
+    if (dto.name !== undefined) {
+      const value = dto.name.trim();
+      if (!value) throw new BadRequestException('Agent name is required');
+      updates.name = value;
+    }
+    if (dto.profile !== undefined) {
+      const value = dto.profile.trim();
+      if (!value) throw new BadRequestException('Agent profile is required');
+      updates.profile = value;
+    }
+    if (dto.systemPrompt !== undefined) {
+      const value = dto.systemPrompt.trim();
+      if (!value) throw new BadRequestException('System prompt is required');
+      updates.systemPrompt = value;
+    }
+    if (dto.description !== undefined) updates.description = dto.description.trim() || null;
+    if (dto.color !== undefined) updates.color = dto.color.trim() || null;
+    if (dto.category !== undefined) updates.category = dto.category;
+
+    return this.prisma.debateAgent.update({
+      where: { id },
+      data: updates,
     });
   }
 
@@ -81,7 +145,10 @@ export class DebateService implements OnModuleInit {
     }
 
     const agents = await this.prisma.debateAgent.findMany({
-      where: { id: { in: agentIds } },
+      where: {
+        id: { in: agentIds },
+        OR: [{ userId: null }, { userId }],
+      },
       select: { id: true, category: true },
     });
     if (agents.length < 2) {
@@ -593,6 +660,7 @@ Use the same language as the topic.`;
     const agents: Array<Omit<DebateAgent, 'createdAt'>> = [
       {
         id: 'supporter',
+        userId: null,
         name: '支持者',
         profile: '积极论证专家',
         systemPrompt:
@@ -604,6 +672,7 @@ Use the same language as the topic.`;
       },
       {
         id: 'opponent',
+        userId: null,
         name: '反对者',
         profile: '批判论证专家',
         systemPrompt:
@@ -615,6 +684,7 @@ Use the same language as the topic.`;
       },
       {
         id: 'moderator',
+        userId: null,
         name: '中立者',
         profile: '客观综合专家',
         systemPrompt:
@@ -626,6 +696,7 @@ Use the same language as the topic.`;
       },
       {
         id: 'innovator',
+        userId: null,
         name: '创新者',
         profile: '突破思维专家',
         systemPrompt:
@@ -637,6 +708,7 @@ Use the same language as the topic.`;
       },
       {
         id: 'critic',
+        userId: null,
         name: '逻辑家',
         profile: '逻辑结构专家',
         systemPrompt:
@@ -648,6 +720,7 @@ Use the same language as the topic.`;
       },
       {
         id: 'logic_scorer',
+        userId: null,
         name: '逻辑评分者',
         profile: '逻辑严密性评判员',
         systemPrompt:
@@ -659,6 +732,7 @@ Use the same language as the topic.`;
       },
       {
         id: 'innovation_scorer',
+        userId: null,
         name: '创新评分者',
         profile: '创意价值评判员',
         systemPrompt:
@@ -670,6 +744,7 @@ Use the same language as the topic.`;
       },
       {
         id: 'expression_scorer',
+        userId: null,
         name: '表达评分者',
         profile: '表达清晰度评判员',
         systemPrompt:
