@@ -169,12 +169,39 @@ export type ReferenceItem = {
   tag?: string;
 };
 
+// Phase D2: Claim-level evidence chain
+export type InsightClaim = {
+  id: string;
+  directionLabel: string;
+  statement: string;
+  confidence: number;
+  sourceQuery: string;
+  contestedBy: string | null;
+  verified: boolean;
+};
+
+// Phase D3: Detected contradiction between two directions
+export type InsightContradiction = {
+  direction1: string;
+  direction2: string;
+  claim1: string;
+  claim2: string;
+  description: string;
+  severity: 'high' | 'medium' | 'low';
+};
+
 export type InsightTopicDetail = {
   id: string;
+  title?: string;
+  subtitle?: string;
+  category?: string;
+  visibility?: string;
+  icon?: string;
   statusLabel: string;
   progress: number;
   tasksDone: number;
   tasksTotal: number;
+  researchStatus?: string;  // PENDING | RUNNING | COMPLETED | ERROR | PAUSED
   team: ResearchMember[];
   aiTeam: AiTeamMember[];
   directions: ResearchDirection[];
@@ -189,6 +216,8 @@ export type InsightTopicDetail = {
   history: HistoryItem[];
   credibility: CredibilityData;
   references: ReferenceItem[];
+  claims?: InsightClaim[];             // Phase D2
+  contradictions?: InsightContradiction[]; // Phase D3
 };
 
 export type NewInsightPayload = {
@@ -197,6 +226,44 @@ export type NewInsightPayload = {
   category: string;
   visibility: '公开' | '私有';
   icon: string;
+};
+
+// ─── New types for v1.2.6 features ────────────────────────────────────────────
+
+export type HealthCheckResult = {
+  tavilyConfigured: boolean;
+  kbEnabled: boolean;
+  defaultModel: string;
+  defaultModelId: string;
+};
+
+export type DirectionSuggestion = {
+  title: string;
+  reason: string;
+};
+
+export type CompareResult = {
+  similarities: string[];
+  differences: string[];
+  recommendation: string;
+  confidenceA?: number;
+  confidenceB?: number;
+  topicA: { title: string; summary: string };
+  topicB: { title: string; summary: string };
+};
+
+export type SharedInsightData = {
+  title: string;
+  subtitle?: string;
+  category: string;
+  icon: string;
+  executiveSummary: string;
+  keyFindings: string[];
+  opportunities: string[];
+  risks: string[];
+  actionItems: string[];
+  references: Array<{ title: string; domain: string; score: number }>;
+  researchStatus: string;
 };
 
 export const insightTopics: InsightTopicSummary[] = [
@@ -373,8 +440,8 @@ const ACCENT_BY_ICON: Record<string, InsightTopicSummary['accent']> = {
   },
 };
 
-const STORAGE_TOPICS_KEY = 'raven_ai_insights_topics';
-const STORAGE_DETAILS_KEY = 'raven_ai_insights_details';
+const STORAGE_TOPICS_KEY = 'gewu_ai_insights_topics';
+const STORAGE_DETAILS_KEY = 'gewu_ai_insights_details';
 
 function readStorage<T>(key: string, fallback: T): T {
   if (typeof window === 'undefined') return fallback;

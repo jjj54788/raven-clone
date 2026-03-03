@@ -269,11 +269,11 @@ export const exploreItems: ExploreItem[] = [
   },
 ];
 
-const STORAGE_PREFIX = 'raven_ai_explore_bookmarks';
-const BOOKMARK_ITEMS_PREFIX = 'raven_ai_explore_bookmark_items';
-const EVENT_NAME = 'raven:ai-explore-bookmarks';
-const KEYWORDS_PREFIX = 'raven_ai_explore_keywords';
-const KEYWORDS_EVENT = 'raven:ai-explore-keywords';
+const STORAGE_PREFIX = 'gewu_ai_explore_bookmarks';
+const BOOKMARK_ITEMS_PREFIX = 'gewu_ai_explore_bookmark_items';
+const EVENT_NAME = 'gewu:ai-explore-bookmarks';
+const KEYWORDS_PREFIX = 'gewu_ai_explore_keywords';
+const KEYWORDS_EVENT = 'gewu:ai-explore-keywords';
 
 function storageKey(userId?: string | null): string {
   return `${STORAGE_PREFIX}_${userId || 'guest'}`;

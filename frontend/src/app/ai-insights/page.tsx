@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import {
   Building2,
   Cpu,
+  GitCompare,
   Globe2,
   Share2,
   Plus,
@@ -15,13 +16,8 @@ import {
 import Sidebar from '@/components/Sidebar';
 import { useAuth } from '@/hooks';
 import { useLanguage } from '@/i18n/LanguageContext';
-import {
-  createInsightFromMacro,
-  getAllInsightTopics,
-  getInsightTopic,
-  type InsightTopicSummary,
-  type NewInsightPayload,
-} from '@/lib/ai-insights-data';
+import type { InsightTopicSummary, NewInsightPayload } from '@/lib/ai-insights-data';
+import { listInsights, createInsight } from '@/lib/api';
 
 type IconComponent = React.ComponentType<{ size?: number; className?: string }>;
 
@@ -33,6 +29,7 @@ const ICONS: Record<string, IconComponent> = {
 };
 
 function InsightCard({ topic }: { topic: InsightTopicSummary }) {
+  const { t } = useLanguage();
   const Icon = ICONS[topic.icon] || Sparkles;
   const progress = Math.min(100, Math.round((topic.dimensionDone / topic.dimensionTotal) * 100));
 
@@ -65,16 +62,16 @@ function InsightCard({ topic }: { topic: InsightTopicSummary }) {
         <div className="flex items-center gap-3">
           <span className="inline-flex items-center gap-1">
             <span className="h-1.5 w-1.5 rounded-full bg-gray-300" />
-            {topic.reportCount} 份报告
+            {topic.reportCount} {t('aiInsights.reportCount')}
           </span>
           <span className="inline-flex items-center gap-1">
             <span className="h-1.5 w-1.5 rounded-full bg-gray-300" />
-            {topic.sourceCount} 个来源
+            {topic.sourceCount} {t('aiInsights.sourceCount')}
           </span>
         </div>
         <div>
           <div className="flex items-center justify-between text-[11px] text-gray-400">
-            <span>维度完成度</span>
+            <span>{t('aiInsights.dimensionProgress')}</span>
             <span>{topic.dimensionDone}/{topic.dimensionTotal}</span>
           </div>
           <div className="mt-1 h-1.5 w-full rounded-full bg-gray-100">
@@ -83,7 +80,7 @@ function InsightCard({ topic }: { topic: InsightTopicSummary }) {
         </div>
         <div className="flex items-center gap-1 text-[11px] text-gray-400">
           <span className="h-1.5 w-1.5 rounded-full bg-gray-300" />
-          上次刷新: {topic.lastUpdated}
+          {t('aiInsights.lastUpdated')} {topic.lastUpdated}
         </div>
       </div>
     </Link>
@@ -94,71 +91,49 @@ export default function AiInsightsPage() {
   const router = useRouter();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const { userName, authReady } = useAuth();
-  const { locale } = useLanguage();
+  const { t } = useLanguage();
   const [query, setQuery] = useState('');
-  const [topics, setTopics] = useState<InsightTopicSummary[]>(() => getAllInsightTopics());
+  const [topics, setTopics] = useState<InsightTopicSummary[]>([]);
+  const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [createError, setCreateError] = useState('');
-  const [draft, setDraft] = useState<NewInsightPayload>(() => {
-    const macro = getInsightTopic('us-ai-macro');
-    return {
-      title: macro?.title ?? 'AI宏观洞察',
-      subtitle: macro?.subtitle ?? 'AI宏观洞察',
-      category: macro?.category ?? '宏观洞察',
-      visibility: macro?.visibility ?? '公开',
-      icon: macro?.icon ?? 'globe',
-    };
+  const [draft, setDraft] = useState<NewInsightPayload>({
+    title: '',
+    subtitle: '',
+    category: '宏观洞察',
+    visibility: '私有',
+    icon: 'globe',
   });
 
   useEffect(() => {
-    setTopics(getAllInsightTopics());
+    listInsights()
+      .then(setTopics)
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
-  const uiText = useMemo(() => {
-    const zh = {
-      title: 'AI 洞察',
-      subtitle: 'AI 驱动的行业专题监控与分析',
-      searchPlaceholder: '搜索洞察...',
-      create: '新建洞察',
-      emptyTitle: '没有匹配的洞察专题',
-      emptyHint: '试试更换关键词，或者创建一个新的洞察。',
-      createCard: '创建专题',
-      createTitle: '新建洞察',
-      createDesc: '基于 AI 宏观洞察模板生成新的洞察专题。',
-      fieldTitle: '洞察名称',
-      fieldSubtitle: '洞察副标题',
-      fieldCategory: '分类',
-      fieldVisibility: '可见性',
-      fieldIcon: '图标',
-      createSubmit: '创建并打开',
-      createCancel: '取消',
-      createTitlePlaceholder: '例如：美国AI宏观洞察',
-      createSubtitlePlaceholder: '可选，留空将自动与名称一致',
-      createRequired: '请填写洞察名称',
-    };
-    const en = {
-      title: 'AI Insights',
-      subtitle: 'AI-driven industry monitoring and analysis',
-      searchPlaceholder: 'Search insights...',
-      create: 'New Insight',
-      emptyTitle: 'No matching insights',
-      emptyHint: 'Try a different keyword or create a new insight.',
-      createCard: 'Create Topic',
-      createTitle: 'New Insight',
-      createDesc: 'Generate a new topic based on the AI macro insight template.',
-      fieldTitle: 'Title',
-      fieldSubtitle: 'Subtitle',
-      fieldCategory: 'Category',
-      fieldVisibility: 'Visibility',
-      fieldIcon: 'Icon',
-      createSubmit: 'Create & open',
-      createCancel: 'Cancel',
-      createTitlePlaceholder: 'e.g. US AI Macro Insights',
-      createSubtitlePlaceholder: 'Optional, defaults to title',
-      createRequired: 'Please enter a title',
-    };
-    return locale === 'zh' ? zh : en;
-  }, [locale]);
+  const uiText = useMemo(() => ({
+    title: t('aiInsights.title'),
+    subtitle: t('aiInsights.subtitle'),
+    searchPlaceholder: t('aiInsights.searchPlaceholder'),
+    create: t('aiInsights.create'),
+    emptyTitle: t('aiInsights.emptyTitle'),
+    emptyHint: t('aiInsights.emptyHint'),
+    createCard: t('aiInsights.createCard'),
+    createTitle: t('aiInsights.createTitle'),
+    createDesc: t('aiInsights.createDesc'),
+    fieldTitle: t('aiInsights.fieldTitle'),
+    fieldSubtitle: t('aiInsights.fieldSubtitle'),
+    fieldCategory: t('aiInsights.fieldCategory'),
+    fieldVisibility: t('aiInsights.fieldVisibility'),
+    fieldIcon: t('aiInsights.fieldIcon'),
+    createSubmit: t('aiInsights.createSubmit'),
+    createCancel: t('aiInsights.createCancel'),
+    createTitlePlaceholder: t('aiInsights.createTitlePlaceholder'),
+    createSubtitlePlaceholder: t('aiInsights.createSubtitlePlaceholder'),
+    createRequired: t('aiInsights.createRequired'),
+  }), [t]);
 
   const categoryOptions = useMemo(() => ['宏观洞察', '技术趋势', '企业追踪'], []);
   const visibilityOptions = useMemo(() => ['公开', '私有'], []);
@@ -173,33 +148,29 @@ export default function AiInsightsPage() {
   );
 
   const openCreate = () => {
-    const macro = getInsightTopic('us-ai-macro');
-    setDraft({
-      title: macro?.title ?? 'AI宏观洞察',
-      subtitle: macro?.subtitle ?? 'AI宏观洞察',
-      category: macro?.category ?? '宏观洞察',
-      visibility: macro?.visibility ?? '公开',
-      icon: macro?.icon ?? 'globe',
-    });
+    setDraft({ title: '', subtitle: '', category: '宏观洞察', visibility: '私有', icon: 'globe' });
     setCreateError('');
     setCreating(true);
   };
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     const title = draft.title.trim();
     if (!title) {
       setCreateError(uiText.createRequired);
       return;
     }
-    const summary = createInsightFromMacro({
-      ...draft,
-      title,
-      subtitle: draft.subtitle?.trim() || title,
-    });
-    setTopics((prev) => [summary, ...prev]);
-    setCreating(false);
-    setQuery('');
-    router.push(`/ai-insights/topic/${summary.id}`);
+    setSubmitting(true);
+    try {
+      const summary = await createInsight({ ...draft, title, subtitle: draft.subtitle?.trim() || title });
+      setTopics((prev) => [summary, ...prev]);
+      setCreating(false);
+      setQuery('');
+      router.push(`/ai-insights/topic/${summary.id}`);
+    } catch {
+      setCreateError(t('aiInsights.createError'));
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const filtered = useMemo(() => {
@@ -211,7 +182,7 @@ export default function AiInsightsPage() {
     });
   }, [query, topics]);
 
-  if (!authReady) {
+  if (!authReady || loading) {
     return (
       <div className="flex h-screen items-center justify-center bg-[#FAFAFA]">
         <div className="text-gray-400">Loading...</div>
@@ -244,6 +215,13 @@ export default function AiInsightsPage() {
                 </div>
               </div>
 
+              <Link
+                href="/ai-insights/compare"
+                className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-50"
+              >
+                <GitCompare size={16} />
+                {t('aiInsights.compareTitle')}
+              </Link>
               <button
                 type="button"
                 onClick={openCreate}
@@ -411,9 +389,10 @@ export default function AiInsightsPage() {
                 <button
                   type="button"
                   onClick={handleCreate}
-                  className="rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-700"
+                  disabled={submitting}
+                  className="rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-700 disabled:opacity-60"
                 >
-                  {uiText.createSubmit}
+                  {submitting ? '创建中...' : uiText.createSubmit}
                 </button>
               </div>
             </div>

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 44">
+  <!-- Icon mark (44x44) -->
+  <rect width="44" height="44" rx="10" fill="#1e3a8a"/>
+  <rect x="9" y="9" width="26" height="26" rx="1.5" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="1.5"/>
+  <line x1="22" y1="9" x2="22" y2="35" stroke="rgba(255,255,255,0.5)" stroke-width="1.5"/>
+  <line x1="9" y1="22" x2="35" y2="22" stroke="rgba(255,255,255,0.5)" stroke-width="1.5"/>
+  <rect x="23.5" y="10.5" width="10" height="10" rx="1.5" fill="#f59e0b"/>
+
+  <!-- 格物 Chinese logotype -->
+  <text x="58" y="27" font-family="'PingFang SC','Microsoft YaHei','Noto Sans SC',sans-serif"
+        font-size="20" font-weight="700" fill="#1e3a8a" letter-spacing="1">格物</text>
+
+  <!-- GEWU English sub-label -->
+  <text x="59" y="40" font-family="'SF Pro Text','Helvetica Neue',Arial,sans-serif"
+        font-size="9" font-weight="400" letter-spacing="3.5" fill="#6b7280">GEWU</text>
+</svg>

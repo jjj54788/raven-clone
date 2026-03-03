@@ -170,6 +170,21 @@ export class AuthService {
     }
   }
 
+  async refreshTokens(refreshToken: string) {
+    const decoded = this.verifyToken(refreshToken);
+    if (!decoded || decoded.type !== 'refresh') {
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+    const user = await this.prisma.user.findUnique({
+      where: { id: decoded.sub },
+      select: { id: true },
+    });
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+    return this.generateTokens(user.id);
+  }
+
   getUserIdFromRequest(req: { headers?: { authorization?: string } }): string | null {
     const auth = req.headers?.authorization;
     if (!auth?.startsWith('Bearer ')) return null;

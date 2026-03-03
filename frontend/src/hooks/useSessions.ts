@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   getSessions,
   getSessionMessages,
+  renameSession as apiRenameSession,
   deleteSession as apiDeleteSession,
 } from '@/lib/api';
 
@@ -14,25 +15,37 @@ export interface Session {
   _count?: { messages: number };
 }
 
+export interface MixModelAnswer {
+  modelId: string;
+  modelName: string;
+  provider: string;
+  content: string;
+  error?: string;
+}
+
 export interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   model?: string;
   provider?: string;
+  /** Present when this message is a mix-chat result */
+  mixResults?: MixModelAnswer[];
+  /** Present when synthesis is available */
+  mixSynthesis?: string;
 }
 
 function getSavedSessionId(): string | null {
   if (typeof window === 'undefined') return null;
-  return sessionStorage.getItem('raven_active_session');
+  return sessionStorage.getItem('gewu_active_session');
 }
 
 function saveSessionId(id: string | null) {
   if (typeof window === 'undefined') return;
   if (id) {
-    sessionStorage.setItem('raven_active_session', id);
+    sessionStorage.setItem('gewu_active_session', id);
   } else {
-    sessionStorage.removeItem('raven_active_session');
+    sessionStorage.removeItem('gewu_active_session');
   }
 }
 
@@ -131,17 +144,27 @@ export function useSessions(authReady: boolean) {
     }
   }, []);
 
+  const renameSession = useCallback(async (sessionId: string, title: string) => {
+    try {
+      await apiRenameSession(sessionId, title);
+      setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, title } : s));
+    } catch (err) {
+      console.error('[useSessions] Failed to rename session:', err);
+    }
+  }, []);
+
   const addMessage = useCallback((msg: Message) => {
     setMessages(prev => [...prev, msg]);
   }, []);
 
-  const updateMessage = useCallback((id: string, update: Partial<Message>) => {
+  const updateMessage = useCallback((id: string, update: Partial<Message> | ((prev: Message) => Partial<Message>)) => {
     setMessages((prev) => {
       let changed = false;
       const next = prev.map((m) => {
         if (m.id !== id) return m;
         changed = true;
-        return { ...m, ...update };
+        const patch = typeof update === 'function' ? update(m) : update;
+        return { ...m, ...patch };
       });
       return changed ? next : prev;
     });
@@ -155,6 +178,7 @@ export function useSessions(authReady: boolean) {
     selectSession,
     newChat,
     removeSession,
+    renameSession,
     setActiveSessionId,
     addMessage,
     updateMessage,

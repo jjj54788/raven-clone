@@ -1,4 +1,4 @@
-﻿-- Add optional owner to debate agents.
+-- Add optional owner to debate agents.
 
 ALTER TABLE "DebateAgent" ADD COLUMN "userId" TEXT;
 

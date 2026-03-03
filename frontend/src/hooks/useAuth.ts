@@ -56,7 +56,7 @@ export function useAuth() {
 
     const unsubscribe = subscribeUserChanged(syncUser);
     const onStorage = (event: StorageEvent) => {
-      if (event.key === 'raven_user') syncUser();
+      if (event.key === 'gewu_user') syncUser();
     };
     window.addEventListener('storage', onStorage);
 

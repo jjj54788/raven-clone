@@ -32,7 +32,11 @@ import {
   updateProfile,
 } from '@/lib/api';
 import { loadExploreBookmarks } from '@/lib/ai-explore';
-import { loadModelKeys, setModelKey, type ModelKeyMap, loadTeams } from '@/lib/teams';
+import {
+  loadModelKeys, setModelKey, type ModelKeyMap, loadTeams,
+  loadUserModels, addUserModel, removeUserModel, getProviderModelSuggestions,
+  type UserCustomModel,
+} from '@/lib/teams';
 import {
   DEFAULT_PROFILE_STORE,
   buildProfileStoreFromApi,
@@ -180,6 +184,10 @@ export default function ProfilePage() {
   const [modelKeys, setModelKeys] = useState<ModelKeyMap>({});
   const [apiModal, setApiModal] = useState<{ id: string; label: string } | null>(null);
   const [apiKeyDraft, setApiKeyDraft] = useState('');
+  const [userModels, setUserModels] = useState<UserCustomModel[]>([]);
+  const [addModelModal, setAddModelModal] = useState<{ providerId: string; providerLabel: string } | null>(null);
+  const [modelIdDraft, setModelIdDraft] = useState('');
+  const [modelNameDraft, setModelNameDraft] = useState('');
 
   const [stats, setStats] = useState({
     bookmarks: 0,
@@ -443,6 +451,7 @@ export default function ProfilePage() {
     setSettingsDirty(false);
 
     setModelKeys(loadModelKeys());
+    setUserModels(loadUserModels());
 
     const bookmarks = loadExploreBookmarks(currentUser?.id || null);
     const teams = loadTeams(currentUser?.name).length;
@@ -721,6 +730,21 @@ export default function ProfilePage() {
   const removeApiKey = (providerId: string) => {
     setModelKey(providerId, '');
     setModelKeys(loadModelKeys());
+  };
+
+  const handleAddModel = () => {
+    if (!addModelModal || !modelIdDraft.trim()) return;
+    const name = modelNameDraft.trim() || modelIdDraft.trim();
+    addUserModel({ id: modelIdDraft.trim(), name, provider: addModelModal.providerLabel });
+    setUserModels(loadUserModels());
+    setAddModelModal(null);
+    setModelIdDraft('');
+    setModelNameDraft('');
+  };
+
+  const handleRemoveModel = (modelId: string) => {
+    removeUserModel(modelId);
+    setUserModels(loadUserModels());
   };
 
   if (!authReady) {
@@ -1204,6 +1228,44 @@ export default function ProfilePage() {
                             </button>
                           </div>
                         </div>
+
+                        {configured && (
+                          <div className="mt-3 rounded-xl border border-gray-100 bg-gray-50 px-3 py-2.5">
+                            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                              {locale === 'zh' ? '使用此 Key 的模型' : 'Models using this key'}
+                            </p>
+                            {userModels
+                              .filter((m) => m.provider.toLowerCase() === provider.label.toLowerCase())
+                              .map((m) => (
+                                <div key={m.id} className="flex items-center justify-between py-1">
+                                  <span className="text-xs text-gray-700">
+                                    {m.name}
+                                    {m.name !== m.id && (
+                                      <span className="ml-1.5 text-gray-400">({m.id})</span>
+                                    )}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveModel(m.id)}
+                                    className="text-xs text-red-400 hover:text-red-600"
+                                  >
+                                    {locale === 'zh' ? '移除' : 'Remove'}
+                                  </button>
+                                </div>
+                              ))}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setAddModelModal({ providerId: provider.id, providerLabel: provider.label });
+                                setModelIdDraft('');
+                                setModelNameDraft('');
+                              }}
+                              className="mt-1.5 text-xs font-medium text-purple-600 hover:text-purple-800"
+                            >
+                              + {locale === 'zh' ? '添加模型' : 'Add model'}
+                            </button>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -1379,6 +1441,69 @@ export default function ProfilePage() {
           </div>
         </div>
       </main>
+      {addModelModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
+          <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-5 shadow-xl">
+            <h3 className="text-base font-semibold text-gray-900">
+              {locale === 'zh' ? `添加模型 — ${addModelModal.providerLabel}` : `Add model — ${addModelModal.providerLabel}`}
+            </h3>
+            <p className="mt-1 text-xs text-gray-400">
+              {locale === 'zh' ? '选择推荐模型或手动输入任意 model ID' : 'Pick a suggested model or enter any model ID'}
+            </p>
+
+            {/* Suggestion chips */}
+            {getProviderModelSuggestions(addModelModal.providerId).length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {getProviderModelSuggestions(addModelModal.providerId).map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => { setModelIdDraft(s.id); setModelNameDraft(s.name); }}
+                    className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+                      modelIdDraft === s.id
+                        ? 'border-purple-400 bg-purple-50 text-purple-700'
+                        : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                    }`}
+                  >
+                    {s.name}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <input
+              value={modelIdDraft}
+              onChange={(e) => setModelIdDraft(e.target.value)}
+              placeholder={locale === 'zh' ? '或手动输入 model ID（如 gpt-4o）' : 'Or type any model ID (e.g. gpt-4o)'}
+              className="mt-3 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-purple-300"
+            />
+            <input
+              value={modelNameDraft}
+              onChange={(e) => setModelNameDraft(e.target.value)}
+              placeholder={locale === 'zh' ? '显示名称（可选）' : 'Display name (optional)'}
+              className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-purple-300"
+            />
+
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => { setAddModelModal(null); setModelIdDraft(''); setModelNameDraft(''); }}
+                className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+              >
+                {locale === 'zh' ? '取消' : 'Cancel'}
+              </button>
+              <button
+                type="button"
+                onClick={handleAddModel}
+                disabled={!modelIdDraft.trim()}
+                className="rounded-xl bg-purple-600 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-700 disabled:opacity-40"
+              >
+                {locale === 'zh' ? '添加' : 'Add'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {apiModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
           <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-5 shadow-xl">

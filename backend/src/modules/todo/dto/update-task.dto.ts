@@ -10,7 +10,7 @@ import {
   Min,
   MinLength,
 } from 'class-validator';
-import { TodoStatus } from '@prisma/client';
+import { TodoStatus, RepeatRule } from '@prisma/client';
 
 export class UpdateTodoTaskDto {
   @IsOptional()
@@ -41,5 +41,18 @@ export class UpdateTodoTaskDto {
   @IsOptional()
   @IsUUID()
   listId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  color?: string | null;
+
+  @IsOptional()
+  @IsEnum(RepeatRule)
+  repeatRule?: RepeatRule;
+
+  @IsOptional()
+  @IsDateString()
+  repeatEndAt?: string | null;
 }
 

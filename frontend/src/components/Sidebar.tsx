@@ -5,9 +5,9 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   Settings, Search, BookOpen, Eye, FlaskConical,
-  FileText, Users, Target, LayoutGrid, PenTool,
-  Store, Bell, Globe, ChevronLeft, ChevronRight, Monitor, Menu, LogOut, Shield, ListTodo, MessageSquare,
-  User, Wallet, CheckCircle2, Workflow,
+  FileText, Users, Target, LayoutGrid,
+  Store, Bell, Globe, ChevronLeft, ChevronRight, Monitor, Menu, LogOut, Shield, ListTodo,
+  User, Wallet, CheckCircle2, Bot, Snowflake,
 } from 'lucide-react';
 import { clearToken, getUser } from '@/lib/api';
 import { useLanguage } from '@/i18n/LanguageContext';
@@ -71,8 +71,12 @@ export default function Sidebar({ collapsed, onToggle, onShowHistory, userName }
       titleKey: 'sidebar.aiEngine',
       items: [
         { icon: Settings, labelKey: 'sidebar.aiAsk', href: '/', active: pathname === '/' },
-        { icon: MessageSquare, labelKey: 'sidebar.aiAskNative', href: '/ai-native', active: pathname.startsWith('/ai-native') },
-        { icon: Workflow, labelKey: 'sidebar.aise', href: '/aise', active: pathname.startsWith('/aise') },
+      ],
+    },
+    {
+      titleKey: 'sidebar.openclaw',
+      items: [
+        { icon: Bot, labelKey: 'sidebar.openclawHub', href: '/openclaw', active: pathname.startsWith('/openclaw') },
       ],
     },
     {
@@ -100,12 +104,12 @@ export default function Sidebar({ collapsed, onToggle, onShowHistory, userName }
       ],
     },
     {
-      titleKey: 'sidebar.creativeWriting',
-      items: [{ icon: PenTool, labelKey: 'sidebar.aiWriting', href: '/coming-soon' }],
-    },
-    {
       titleKey: 'sidebar.toolStore',
       items: [{ icon: Store, labelKey: 'sidebar.aiStore', href: '/ai-store', active: pathname.startsWith('/ai-store') }],
+    },
+    {
+      titleKey: 'sidebar.entertainment',
+      items: [{ icon: Snowflake, labelKey: 'sidebar.frostland', href: '/frostland', active: pathname.startsWith('/frostland') }],
     },
     ...(isAdmin
       ? [
@@ -126,25 +130,31 @@ export default function Sidebar({ collapsed, onToggle, onShowHistory, userName }
 
   return (
     <aside
-      className={`flex flex-col border-r border-gray-100 bg-white transition-all duration-300 ${
+      className={`flex flex-col border-r border-gray-100/60 bg-white/85 backdrop-blur-xl backdrop-saturate-150 transition-all duration-300 ${
         collapsed ? 'w-16' : 'w-52'
       }`}
     >
       {/* Header */}
       <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-3">
         <div
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-purple-600 text-sm font-bold text-white cursor-pointer"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-900 cursor-pointer overflow-hidden"
           onClick={collapsed ? onToggle : undefined}
           title={collapsed ? t('sidebar.expandSidebar') : undefined}
         >
-          R
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36" className="w-8 h-8">
+            <rect width="36" height="36" rx="8" fill="#1e3a8a"/>
+            <rect x="7" y="7" width="22" height="22" rx="1.5" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="1.5"/>
+            <line x1="18" y1="7" x2="18" y2="29" stroke="rgba(255,255,255,0.5)" strokeWidth="1.5"/>
+            <line x1="7" y1="18" x2="29" y2="18" stroke="rgba(255,255,255,0.5)" strokeWidth="1.5"/>
+            <rect x="19.5" y="8.5" width="9" height="9" rx="1.5" fill="#f59e0b"/>
+          </svg>
         </div>
         {collapsed ? (
           <>{/* Collapsed: show expand and history buttons below logo */}</>
         ) : (
           <>
-            <span className="text-sm font-semibold text-gray-900">Raven</span>
-            <span className="rounded bg-purple-100 px-1.5 py-0.5 text-[10px] font-medium text-purple-700">
+            <span className="text-sm font-semibold text-gray-900">格物</span>
+            <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700">
               {APP_VERSION}
             </span>
             <button onClick={onShowHistory} className="ml-auto rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600" title={t('sidebar.chatHistory')}>
@@ -190,10 +200,10 @@ export default function Sidebar({ collapsed, onToggle, onShowHistory, userName }
               <Link
                 key={item.labelKey}
                 href={item.href}
-                className={`flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm transition-colors ${
+                className={`flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm transition-all duration-150 ${
                   item.active
-                    ? 'bg-purple-50 font-medium text-purple-700'
-                    : 'text-gray-600 hover:bg-gray-50'
+                    ? 'bg-purple-50 font-medium text-purple-700 shadow-sm shadow-purple-100'
+                    : 'text-gray-600 hover:bg-gray-100/70 hover:text-gray-800'
                 } ${collapsed ? 'justify-center' : ''}`}
                 title={collapsed ? t(item.labelKey) : undefined}
               >
@@ -244,7 +254,7 @@ export default function Sidebar({ collapsed, onToggle, onShowHistory, userName }
           {userMenuOpen && (
             <div
               className={[
-                'absolute left-0 bottom-12 z-50 w-60 rounded-2xl border border-gray-200 bg-white p-3 shadow-xl',
+                'absolute left-0 bottom-12 z-50 w-60 rounded-2xl border border-gray-200/60 bg-white/90 backdrop-blur-2xl p-3 shadow-2xl shadow-black/10 modal-in',
                 collapsed ? 'left-12' : '',
               ].join(' ')}
             >

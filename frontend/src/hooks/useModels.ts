@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { getModels as fetchModels } from '@/lib/api';
-import { getModelKey } from '@/lib/teams';
+import { getModelKey, loadUserModels } from '@/lib/teams';
 
 export interface AIModel {
   id: string;
@@ -16,15 +16,33 @@ const FALLBACK_MODELS: AIModel[] = [
   { id: 'deepseek-chat', name: 'DeepSeek V3', provider: 'DeepSeek' },
   { id: 'deepseek-reasoner', name: 'DeepSeek R1', provider: 'DeepSeek' },
   { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', provider: 'Google' },
+  { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B', provider: 'Groq' },
+  { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B', provider: 'Groq' },
+  { id: 'qwen-plus', name: 'Qwen Plus', provider: 'Qwen' },
+  { id: 'qwen-turbo', name: 'Qwen Turbo', provider: 'Qwen' },
+  { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', provider: 'Anthropic' },
+  { id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5', provider: 'Anthropic' },
 ];
 
-function resolveFallbackModels(): AIModel[] {
+function resolveLocalModels(): AIModel[] {
+  // Hardcoded fallbacks for known providers that have keys
   const providersWithKeys = new Set<string>();
-  ['OpenAI', 'DeepSeek', 'Google'].forEach((provider) => {
+  ['OpenAI', 'DeepSeek', 'Google', 'Groq', 'Qwen', 'Anthropic', 'xAI (Grok)', 'Cohere', 'Zhipu', 'Moonshot', 'Yi', 'StepFun', 'Doubao'].forEach((provider) => {
     if (getModelKey(provider)) providersWithKeys.add(provider);
   });
-  if (providersWithKeys.size === 0) return [];
-  return FALLBACK_MODELS.filter((model) => providersWithKeys.has(model.provider));
+  const fallback = FALLBACK_MODELS.filter((m) => providersWithKeys.has(m.provider));
+
+  // User-defined custom models — include only if provider has a key
+  const userModels = loadUserModels().filter((m) => getModelKey(m.provider));
+
+  // Deduplicate by id (fallback first, then user models)
+  const merged = [...fallback];
+  for (const um of userModels) {
+    if (!merged.some((m) => m.id === um.id)) {
+      merged.push(um);
+    }
+  }
+  return merged;
 }
 
 export function useModels(authReady: boolean) {
@@ -35,7 +53,7 @@ export function useModels(authReady: boolean) {
     if (!authReady) return;
     fetchModels()
       .then((data: AIModel[]) => {
-        const fallback = resolveFallbackModels();
+        const fallback = resolveLocalModels();
         const merged = [...(Array.isArray(data) ? data : [])];
         fallback.forEach((item) => {
           if (!merged.some((model) => model.id === item.id)) {
@@ -47,7 +65,7 @@ export function useModels(authReady: boolean) {
       })
       .catch((err) => {
         console.error(err);
-        const fallback = resolveFallbackModels();
+        const fallback = resolveLocalModels();
         if (fallback.length > 0) {
           setModels(fallback);
           setSelectedModel(fallback[0]);

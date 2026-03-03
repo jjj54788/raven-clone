@@ -4,10 +4,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { Check, Plus, X } from 'lucide-react';
 import {
   getAssistantCatalog,
-  hasModelKey,
+  modelToCatalogItem,
   type TeamDraft,
   type TeamAssistantCatalogItem,
 } from '@/lib/teams';
+import { getModels } from '@/lib/api';
 import ModelSettingsModal from '@/components/teams/ModelSettingsModal';
 import { useLanguage } from '@/i18n/LanguageContext';
 
@@ -15,6 +16,8 @@ interface CreateTeamModalProps {
   open: boolean;
   onClose: () => void;
   onCreate: (draft: TeamDraft) => void;
+  creating?: boolean;
+  apiError?: string | null;
 }
 
 const emptyDraft: TeamDraft = {
@@ -38,10 +41,11 @@ function typeLabel(type: string): string {
   }
 }
 
-export default function CreateTeamModal({ open, onClose, onCreate }: CreateTeamModalProps) {
+export default function CreateTeamModal({ open, onClose, onCreate, creating = false, apiError }: CreateTeamModalProps) {
   const { locale } = useLanguage();
   const [catalogVersion, setCatalogVersion] = useState(0);
   const [catalog, setCatalog] = useState<TeamAssistantCatalogItem[]>(() => getAssistantCatalog());
+  const [catalogLoading, setCatalogLoading] = useState(false);
   const [draft, setDraft] = useState<TeamDraft>(emptyDraft);
   const [tagInput, setTagInput] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -94,11 +98,30 @@ export default function CreateTeamModal({ open, onClose, onCreate }: CreateTeamM
     setDraft(emptyDraft);
     setTagInput('');
     setError(null);
-    setCatalog(getAssistantCatalog());
+    // Load dynamic catalog from backend
+    setCatalogLoading(true);
+    getModels()
+      .then((models: any[]) => {
+        if (Array.isArray(models) && models.length > 0) {
+          const dynamic = models.map(modelToCatalogItem);
+          const custom = getAssistantCatalog().filter((c) => c.source === 'custom');
+          setCatalog([...dynamic, ...custom]);
+        } else {
+          setCatalog(getAssistantCatalog());
+        }
+      })
+      .catch(() => {
+        setCatalog(getAssistantCatalog());
+      })
+      .finally(() => setCatalogLoading(false));
   }, [open]);
 
   useEffect(() => {
-    setCatalog(getAssistantCatalog());
+    const custom = getAssistantCatalog().filter((c) => c.source === 'custom');
+    setCatalog((prev) => {
+      const dynamic = prev.filter((c) => c.source !== 'custom');
+      return [...dynamic, ...custom];
+    });
   }, [catalogVersion]);
 
   const toggleAssistant = (id: string) => {
@@ -138,13 +161,17 @@ export default function CreateTeamModal({ open, onClose, onCreate }: CreateTeamM
       return;
     }
     setError(null);
+    const selectedItems = draft.assistantIds
+      .map((id) => catalog.find((c) => c.id === id))
+      .filter((c): c is TeamAssistantCatalogItem => !!c);
     onCreate({
       ...draft,
       name,
       description: draft.description.trim(),
       tags: draft.tags,
       goal: draft.goal?.trim(),
-    });
+      assistantItems: selectedItems,
+    } as any);
   };
 
   const canSubmit = draft.name.trim().length > 0 && draft.assistantIds.length > 0;
@@ -246,9 +273,11 @@ export default function CreateTeamModal({ open, onClose, onCreate }: CreateTeamM
                   {uiText.assistantManage}
                 </button>
                 <span>
-                  {uiText.assistantCount
-                    .replace('{selected}', String(draft.assistantIds.length))
-                    .replace('{total}', String(catalog.length))}
+                  {catalogLoading
+                    ? (locale === 'zh' ? '\u52a0\u8f7d\u4e2d...' : 'Loading...')
+                    : uiText.assistantCount
+                        .replace('{selected}', String(draft.assistantIds.length))
+                        .replace('{total}', String(catalog.length))}
                 </span>
               </div>
             </div>
@@ -256,8 +285,7 @@ export default function CreateTeamModal({ open, onClose, onCreate }: CreateTeamM
             <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
               {catalog.map((assistant: TeamAssistantCatalogItem) => {
                 const selected = draft.assistantIds.includes(assistant.id);
-                const keyReady = assistant.keyProvider ? hasModelKey(assistant.keyProvider) : true;
-                const available = assistant.requiresKey === false ? true : keyReady;
+                const available = true; // backend manages API keys; all catalog items are available
                 return (
                   <button
                     key={assistant.id}
@@ -307,9 +335,9 @@ export default function CreateTeamModal({ open, onClose, onCreate }: CreateTeamM
             </div>
           </div>
 
-          {error ? (
+          {(error || apiError) ? (
             <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-              {error}
+              {error || apiError}
             </div>
           ) : null}
         </div>
@@ -325,10 +353,10 @@ export default function CreateTeamModal({ open, onClose, onCreate }: CreateTeamM
           <button
             type="button"
             onClick={handleSubmit}
-            disabled={!canSubmit}
+            disabled={!canSubmit || creating}
             className="rounded-xl bg-purple-600 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-700 disabled:cursor-not-allowed disabled:bg-purple-300"
           >
-            {uiText.create}
+            {creating ? '...' : uiText.create}
           </button>
         </div>
         </div>

@@ -1,6 +1,6 @@
-# Raven AI Engine Clone
+# 格物 (Gewu) - AI 研究与知识平台
 
-A full-stack clone of [Raven AI Engine](https://raven-ai-engine.up.railway.app/ai-ask), built with NestJS + Next.js.
+全栈 AI 研究与知识管理平台，基于 NestJS + Next.js 构建。
 
 ## Tech Stack
 
@@ -14,7 +14,7 @@ A full-stack clone of [Raven AI Engine](https://raven-ai-engine.up.railway.app/a
 ## Project Structure
 
 ```
-raven-clone/
+gewu/
 ├── backend/
 │   ├── prisma/              # Database schema & migrations
 │   ├── src/
@@ -76,7 +76,7 @@ pnpm dev
 
 Visit http://localhost:3000
 
-Default account: `admin@raven.local` / `admin123`
+Default account: `admin@gewu.local` / `admin123`
 
 ## Features
 
@@ -87,7 +87,7 @@ Default account: `admin@raven.local` / `admin123`
 - Chat session management (create, switch, delete)
 - Message persistence (survives page refresh)
 - Auto-naming sessions based on first message
-- Responsive UI matching original Raven design
+- Responsive UI matching Gewu design system
 
 ## API Endpoints
 

@@ -27,9 +27,54 @@ export interface StoreItem {
   links?: StoreItemLink[];
   trialNotesMarkdown?: string;
   recommendReasons?: string[];
+  usageExamples?: string[];
+  evalScore?: ToolEvalScore;
   githubRepoUrl?: string;
   githubStars?: number;
+  githubForks?: number;
+  githubStarsGrowth7d?: number;
+  githubLastPushedAt?: string;
   createdAt?: string;
   updatedAt?: string;
+}
+
+export interface ToolEvalScore {
+  context: number;
+  creativity: number;
+  quality: number;
+  multimodal: number;
+  safety: number;
+  grade: 'S' | 'A' | 'B' | 'C';
+}
+
+export interface GithubEvalScore {
+  activity: number;
+  community: number;
+  growth: number;
+  docs: number;
+  grade: 'A' | 'B' | 'C' | 'D';
+}
+
+export interface GithubTrendingItem {
+  id: string;
+  repoFullName: string;
+  name: string;
+  description: string;
+  htmlUrl: string;
+  language?: string;
+  topics: string[];
+  stars: number;
+  forks: number;
+  openIssues: number;
+  starsGrowth7d: number;
+  pushedAt?: string;
+  aiSummaryZh?: string;
+  keyFeatures: string[];
+  useCases: string[];
+  limitations?: string;
+  evalScore?: GithubEvalScore;
+  aiAnalyzedAt?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 

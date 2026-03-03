@@ -1,16 +1,23 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
-  ArrowUpRight, Bot, Brain, Code, FileText, Github, Link2, Palette, Plus, Search as SearchIcon, Star, Store as StoreIcon, Trash2, Video, X,
+  ArrowUpRight, Bookmark, BookmarkCheck, Bot, Brain, Code, FileText, Github, Link2, Palette, Plus, Search as SearchIcon, Star, Store as StoreIcon, Trash2, TrendingUp, Video, X,
 } from 'lucide-react';
 import Sidebar from '@/components/Sidebar';
 import { useAuth } from '@/hooks';
 import { useLanguage } from '@/i18n/LanguageContext';
 import {
+  addStoreBookmark,
   createCustomStoreItem,
   deleteCustomStoreItem,
+  getGithubTrendingRepos,
+  getStoreBookmarks,
   getStoreItems,
+  getStoreRecommendations,
+  removeStoreBookmark,
+  type GithubTrendingItem,
 } from '@/lib/api';
 
 type StoreItemType = 'tool' | 'skill';
@@ -37,8 +44,16 @@ interface StoreItem {
   recommendReasons?: string[];
   githubRepoUrl?: string;
   githubStars?: number;
+  githubForks?: number;
+  githubStarsGrowth7d?: number;
+  githubLastPushedAt?: string;
   createdAt?: string;
   updatedAt?: string;
+}
+
+function formatStars(n: number): string {
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
 }
 
 function pricingLabel(pricing: StoreItemPricing | undefined): string {
@@ -140,10 +155,16 @@ function StoreCard({
   item,
   featured,
   onDelete,
+  onCardClick,
+  bookmarked,
+  onBookmarkToggle,
 }: {
   item: StoreItem;
   featured?: boolean;
   onDelete?: (id: string) => void;
+  onCardClick?: (id: string) => void;
+  bookmarked?: boolean;
+  onBookmarkToggle?: (id: string) => void;
 }) {
   const href = safeUrl(item.url);
   const iconMeta = iconMetaFor(item);
@@ -160,7 +181,9 @@ function StoreCard({
       className={[
         'group rounded-2xl border bg-white shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md',
         featured ? 'border-gray-200 p-5' : 'border-gray-200 p-4',
+        onCardClick ? 'cursor-pointer' : '',
       ].join(' ')}
+      onClick={() => onCardClick?.(item.id)}
     >
       <div className="flex items-start gap-3">
         <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${iconMeta.bg} text-white shadow-sm`}>
@@ -197,16 +220,33 @@ function StoreCard({
               </p>
             </div>
 
-            {onDelete && item.source === 'custom' ? (
-              <button
-                type="button"
-                onClick={() => onDelete(item.id)}
-                className="hidden rounded-lg p-2 text-gray-300 hover:bg-gray-50 hover:text-red-500 group-hover:block"
-                title="删除"
-              >
-                <Trash2 size={16} />
-              </button>
-            ) : null}
+            <div className="flex shrink-0 items-center gap-1">
+              {onBookmarkToggle ? (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); onBookmarkToggle(item.id); }}
+                  className={[
+                    'rounded-lg p-2 transition-colors',
+                    bookmarked
+                      ? 'text-purple-600 hover:bg-purple-50'
+                      : 'hidden text-gray-300 hover:bg-gray-50 hover:text-purple-500 group-hover:block',
+                  ].join(' ')}
+                  title={bookmarked ? '取消收藏' : '收藏'}
+                >
+                  {bookmarked ? <BookmarkCheck size={16} /> : <Bookmark size={16} />}
+                </button>
+              ) : null}
+              {onDelete && item.source === 'custom' ? (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); onDelete(item.id); }}
+                  className="hidden rounded-lg p-2 text-gray-300 hover:bg-gray-50 hover:text-red-500 group-hover:block"
+                  title="删除"
+                >
+                  <Trash2 size={16} />
+                </button>
+              ) : null}
+            </div>
           </div>
 
           <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-gray-500">
@@ -220,6 +260,15 @@ function StoreCard({
               <span className="inline-flex items-center gap-1">
                 <span className="h-1.5 w-1.5 rounded-full bg-gray-300" />
                 {usersLabel}
+              </span>
+            ) : null}
+            {item.githubStars != null ? (
+              <span className="inline-flex items-center gap-1">
+                <Github size={12} className="text-gray-400" />
+                <span className="font-medium text-gray-600">★ {formatStars(item.githubStars)}</span>
+                {item.githubStarsGrowth7d != null && item.githubStarsGrowth7d > 0 && (
+                  <span className="font-medium text-emerald-600">↑ {formatStars(item.githubStarsGrowth7d)}/周</span>
+                )}
               </span>
             ) : null}
           </div>
@@ -255,6 +304,68 @@ function StoreCard({
   );
 }
 
+const LANGUAGE_COLORS: Record<string, string> = {
+  Python: 'bg-blue-500', TypeScript: 'bg-blue-400', JavaScript: 'bg-yellow-400',
+  Rust: 'bg-orange-500', Go: 'bg-cyan-500', Java: 'bg-red-500', 'C++': 'bg-pink-500',
+  C: 'bg-gray-500', Swift: 'bg-orange-400', Kotlin: 'bg-purple-500',
+};
+
+function GithubTrendingCard({ item, onClick }: { item: GithubTrendingItem; onClick: () => void }) {
+  const daysSincePush = item.pushedAt
+    ? Math.floor((Date.now() - new Date(item.pushedAt).getTime()) / 86400000)
+    : null;
+  const activityDot = daysSincePush == null ? '⚪' : daysSincePush < 7 ? '🟢' : daysSincePush < 30 ? '🟡' : '🔴';
+  const langColor = item.language ? (LANGUAGE_COLORS[item.language] ?? 'bg-gray-400') : null;
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="group w-full rounded-2xl border border-gray-200 bg-white p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
+    >
+      <div className="flex items-start gap-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-neutral-700 to-neutral-900 text-white shadow-sm">
+          <Github size={18} className="text-white" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="truncate text-sm font-semibold text-gray-900">{item.name}</span>
+            {langColor && item.language && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[11px] font-medium text-gray-600">
+                <span className={`h-2 w-2 rounded-full ${langColor}`} />
+                {item.language}
+              </span>
+            )}
+            <span title={daysSincePush != null ? `最近提交: ${daysSincePush} 天前` : '未知'}>{activityDot}</span>
+          </div>
+          <p className="mt-1 line-clamp-2 text-xs text-gray-500">
+            {item.aiSummaryZh || item.description}
+          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-gray-500">
+            <span className="inline-flex items-center gap-1 font-medium text-gray-700">
+              ★ {item.stars >= 1_000 ? `${(item.stars / 1_000).toFixed(1)}K` : item.stars}
+            </span>
+            {item.starsGrowth7d > 0 && (
+              <span className="font-medium text-emerald-600">
+                ↑ {item.starsGrowth7d >= 1_000 ? `${(item.starsGrowth7d / 1_000).toFixed(1)}K` : item.starsGrowth7d}/周
+              </span>
+            )}
+          </div>
+          {item.topics.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1">
+              {item.topics.slice(0, 3).map((t) => (
+                <span key={t} className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[10px] font-medium text-gray-500">
+                  {t}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </button>
+  );
+}
+
 function parseCommaList(value: string): string[] {
   return value
     .split(',')
@@ -263,18 +374,31 @@ function parseCommaList(value: string): string[] {
 }
 
 export default function AiStorePage() {
+  const router = useRouter();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const { userName, authReady } = useAuth();
   const { locale } = useLanguage();
 
-  const [tab, setTab] = useState<StoreItemType>('tool');
+  const [tab, setTab] = useState<'tool' | 'skill' | 'github'>('tool');
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<'rating' | 'users' | 'name'>('rating');
   const [category, setCategory] = useState<string>('全部');
 
+  // GitHub Trending state
+  const [ghItems, setGhItems] = useState<GithubTrendingItem[]>([]);
+  const [ghLoading, setGhLoading] = useState(false);
+  const [ghSort, setGhSort] = useState<'stars' | 'growth' | 'recent'>('stars');
+  const [ghLanguage, setGhLanguage] = useState('');
+
   const [items, setItems] = useState<StoreItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const [bookmarkedIds, setBookmarkedIds] = useState<Set<string>>(new Set());
+  const [showBookmarked, setShowBookmarked] = useState(false);
+
+  const [recommendations, setRecommendations] = useState<StoreItem[]>([]);
+  const [recsLoading, setRecsLoading] = useState(false);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [createDraft, setCreateDraft] = useState({
@@ -296,15 +420,30 @@ export default function AiStorePage() {
       setLoading(true);
       setError(null);
       try {
-        const data = await getStoreItems();
+        const [data, bookmarks] = await Promise.all([
+          getStoreItems(),
+          getStoreBookmarks().catch(() => [] as StoreItem[]),
+        ]);
         if (cancelled) return;
         setItems(Array.isArray(data) ? (data as StoreItem[]) : []);
+        setBookmarkedIds(new Set(bookmarks.map((b) => b.id)));
       } catch (err: any) {
         if (cancelled) return;
         setError(err?.message || 'Failed to load store items');
         setItems([]);
       } finally {
         if (!cancelled) setLoading(false);
+      }
+
+      // Load recommendations in background
+      setRecsLoading(true);
+      try {
+        const recs = await getStoreRecommendations();
+        if (!cancelled) setRecommendations(Array.isArray(recs) ? (recs as StoreItem[]) : []);
+      } catch {
+        // ignore
+      } finally {
+        if (!cancelled) setRecsLoading(false);
       }
     };
 
@@ -316,7 +455,42 @@ export default function AiStorePage() {
 
   useEffect(() => {
     setCategory('全部');
+    setShowBookmarked(false);
   }, [tab]);
+
+  useEffect(() => {
+    if (tab !== 'github') return;
+    let cancelled = false;
+    setGhLoading(true);
+    getGithubTrendingRepos({ sort: ghSort, language: ghLanguage || undefined, limit: 40 })
+      .then((data) => { if (!cancelled) setGhItems(Array.isArray(data) ? data : []); })
+      .catch(() => { if (!cancelled) setGhItems([]); })
+      .finally(() => { if (!cancelled) setGhLoading(false); });
+    return () => { cancelled = true; };
+  }, [tab, ghSort, ghLanguage]);
+
+  const onBookmarkToggle = async (id: string) => {
+    const wasBookmarked = bookmarkedIds.has(id);
+    // Optimistic update
+    setBookmarkedIds((prev) => {
+      const next = new Set(prev);
+      if (wasBookmarked) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+    try {
+      if (wasBookmarked) await removeStoreBookmark(id);
+      else await addStoreBookmark(id);
+    } catch {
+      // Revert on failure
+      setBookmarkedIds((prev) => {
+        const next = new Set(prev);
+        if (wasBookmarked) next.add(id);
+        else next.delete(id);
+        return next;
+      });
+    }
+  };
 
   const uiText = useMemo(() => {
     const zh = {
@@ -324,6 +498,7 @@ export default function AiStorePage() {
       subtitle: '发现 AI 工具和 Agent 技能',
       tabTools: 'AI 工具',
       tabSkills: 'Agent 技能',
+      tabGithub: 'GitHub 热门',
       searchPlaceholder: tab === 'tool' ? '搜索 AI 工具、功能或标签...' : '搜索 Agent 技能、功能或标签...',
       sortLabel: '排序',
       featured: '编辑精选',
@@ -334,12 +509,16 @@ export default function AiStorePage() {
       sortRating: '按评分排序',
       sortUsers: '按用户数排序',
       sortName: '按名称排序',
+      forYou: '为你推荐',
+      forYouSub: '基于你的 AI 对话历史',
+      bookmarked: '已收藏',
     };
     const en = {
       title: 'AI Store',
       subtitle: 'Discover AI tools and agent skills',
       tabTools: 'AI Tools',
       tabSkills: 'Agent Skills',
+      tabGithub: 'GitHub Trending',
       searchPlaceholder: tab === 'tool' ? 'Search tools, features, or tags...' : 'Search skills, features, or tags...',
       sortLabel: 'Sort',
       featured: 'Editor Picks',
@@ -350,15 +529,21 @@ export default function AiStorePage() {
       sortRating: 'Rating',
       sortUsers: 'Users',
       sortName: 'Name',
+      forYou: 'For You',
+      forYouSub: 'Based on your AI chat history',
+      bookmarked: 'Saved',
     };
     return locale === 'zh' ? zh : en;
   }, [locale, tab]);
 
   const filtered = useMemo(() => {
+    if (tab === 'github') return [];
     const q = search.trim().toLowerCase();
-    let list = items.filter((it) => it.type === tab);
+    let list = items.filter((it) => it.type === (tab as 'tool' | 'skill'));
 
-    if (category !== '全部') {
+    if (showBookmarked) {
+      list = list.filter((it) => bookmarkedIds.has(it.id));
+    } else if (category !== '全部') {
       list = list.filter((it) => it.categories.includes(category));
     }
 
@@ -376,21 +561,23 @@ export default function AiStorePage() {
     });
 
     return sorted;
-  }, [items, tab, search, category, sort]);
+  }, [items, tab, search, category, sort, showBookmarked, bookmarkedIds]);
 
   const featuredItems = useMemo(() => filtered.filter((it) => it.featured).slice(0, 3), [filtered]);
 
   const categories = useMemo(() => {
+    if (tab === 'github') return [];
     const set = new Set<string>();
     for (const it of items) {
-      if (it.type !== tab) continue;
+      if (it.type !== (tab as 'tool' | 'skill')) continue;
       for (const c of it.categories) set.add(c);
     }
     return ['全部', ...Array.from(set)];
   }, [items, tab]);
 
   const onOpenCreate = () => {
-    setCreateDraft((d) => ({ ...d, type: tab }));
+    const draftType: StoreItemType = tab === 'github' ? 'tool' : tab;
+    setCreateDraft((d) => ({ ...d, type: draftType }));
     setCreateOpen(true);
   };
 
@@ -414,7 +601,7 @@ export default function AiStorePage() {
       setItems((prev) => [created as StoreItem, ...prev]);
       setCreateOpen(false);
       setCreateDraft({
-        type: tab,
+        type: tab === 'github' ? 'tool' : tab,
         name: '',
         description: '',
         url: '',
@@ -492,6 +679,18 @@ export default function AiStorePage() {
                     {uiText.tabSkills}
                     {tab === 'skill' && <span className="absolute inset-x-0 -bottom-[1px] h-0.5 bg-purple-600" />}
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setTab('github')}
+                    className={[
+                      'relative flex items-center gap-1.5 pb-2 text-sm font-semibold transition-colors',
+                      tab === 'github' ? 'text-purple-700' : 'text-gray-500 hover:text-gray-700',
+                    ].join(' ')}
+                  >
+                    <TrendingUp size={14} />
+                    {uiText.tabGithub}
+                    {tab === 'github' && <span className="absolute inset-x-0 -bottom-[1px] h-0.5 bg-purple-600" />}
+                  </button>
                 </div>
               </div>
 
@@ -542,11 +741,100 @@ export default function AiStorePage() {
               </div>
             ) : null}
 
-            {loading ? (
+            {tab === 'github' ? (
+              <div>
+                {/* GitHub Trending filter bar */}
+                <div className="mb-5 flex flex-wrap items-center gap-3">
+                  <div className="inline-flex items-center gap-2 rounded-2xl border border-gray-200 bg-white px-3 py-2 shadow-sm">
+                    <span className="text-sm font-medium text-gray-600">排序</span>
+                    <select
+                      value={ghSort}
+                      onChange={(e) => setGhSort(e.target.value as any)}
+                      className="bg-transparent text-sm text-gray-700 outline-none"
+                    >
+                      <option value="stars">Stars 最多</option>
+                      <option value="growth">本周增长</option>
+                      <option value="recent">最近活跃</option>
+                    </select>
+                  </div>
+                  <div className="inline-flex items-center gap-2 rounded-2xl border border-gray-200 bg-white px-3 py-2 shadow-sm">
+                    <span className="text-sm font-medium text-gray-600">语言</span>
+                    <select
+                      value={ghLanguage}
+                      onChange={(e) => setGhLanguage(e.target.value)}
+                      className="bg-transparent text-sm text-gray-700 outline-none"
+                    >
+                      <option value="">全部</option>
+                      <option value="Python">Python</option>
+                      <option value="TypeScript">TypeScript</option>
+                      <option value="JavaScript">JavaScript</option>
+                      <option value="Rust">Rust</option>
+                      <option value="Go">Go</option>
+                      <option value="Java">Java</option>
+                      <option value="C++">C++</option>
+                    </select>
+                  </div>
+                  <span className="text-xs text-gray-400">每日自动同步 · 追踪最活跃的 AI 开源项目</span>
+                </div>
+
+                {ghLoading ? (
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                    {[...Array(9)].map((_, i) => (
+                      <div key={i} className="h-32 animate-pulse rounded-2xl bg-gray-100" />
+                    ))}
+                  </div>
+                ) : ghItems.length === 0 ? (
+                  <div className="rounded-2xl border border-gray-200 bg-white p-10 text-center text-sm text-gray-400">
+                    暂无数据，请先触发同步
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                    {ghItems.map((it) => (
+                      <GithubTrendingCard
+                        key={it.id}
+                        item={it}
+                        onClick={() => router.push(`/ai-store/gh/${it.id}`)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : loading ? (
               <div className="py-10 text-center text-sm text-gray-400">{uiText.loading}</div>
             ) : (
               <>
-                {featuredItems.length > 0 ? (
+                {/* AI Recommendations */}
+                {(recsLoading || recommendations.length > 0) && (
+                  <section className="mb-7">
+                    <div className="mb-3 flex items-center gap-2">
+                      <Bot size={16} className="text-purple-500" />
+                      <h2 className="text-base font-semibold text-gray-900">{uiText.forYou}</h2>
+                      <span className="text-xs text-gray-400">{uiText.forYouSub}</span>
+                    </div>
+                    {recsLoading ? (
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                        {[0, 1, 2, 3].map((i) => (
+                          <div key={i} className="h-24 animate-pulse rounded-2xl bg-gray-100" />
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                        {recommendations.slice(0, 4).map((it) => (
+                          <StoreCard
+                            key={it.id}
+                            item={it}
+                            onCardClick={(id) => router.push(`/ai-store/${id}`)}
+                            bookmarked={bookmarkedIds.has(it.id)}
+                            onBookmarkToggle={onBookmarkToggle}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </section>
+                )}
+
+                {/* Featured */}
+                {featuredItems.length > 0 && !showBookmarked ? (
                   <section className="mb-7">
                     <div className="mb-3 flex items-center gap-2">
                       <Star size={16} className="text-amber-500" />
@@ -554,15 +842,32 @@ export default function AiStorePage() {
                     </div>
                     <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                       {featuredItems.map((it) => (
-                        <StoreCard key={it.id} item={it} featured onDelete={onDelete} />
+                        <StoreCard
+                          key={it.id}
+                          item={it}
+                          featured
+                          onDelete={onDelete}
+                          onCardClick={(id) => router.push(`/ai-store/${id}`)}
+                          bookmarked={bookmarkedIds.has(it.id)}
+                          onBookmarkToggle={onBookmarkToggle}
+                        />
                       ))}
                     </div>
                   </section>
                 ) : null}
 
+                {/* Category + Bookmark filter pills */}
                 <section className="mb-6">
                   <div className="flex flex-wrap gap-2">
-                    {categories.map((c) => (
+                    <button
+                      type="button"
+                      className={pillClass(showBookmarked)}
+                      onClick={() => { setShowBookmarked((v) => !v); setCategory('全部'); }}
+                    >
+                      <BookmarkCheck size={13} className="mr-1 inline-block" />
+                      {uiText.bookmarked}
+                    </button>
+                    {!showBookmarked && categories.map((c) => (
                       <button
                         key={c}
                         type="button"
@@ -578,7 +883,8 @@ export default function AiStorePage() {
                 <section>
                   <div className="mb-3 flex items-end justify-between gap-3">
                     <h2 className="text-base font-semibold text-gray-900">
-                      {uiText.all} <span className="text-sm font-medium text-gray-400">({filtered.length})</span>
+                      {showBookmarked ? uiText.bookmarked : uiText.all}{' '}
+                      <span className="text-sm font-medium text-gray-400">({filtered.length})</span>
                     </h2>
                   </div>
 
@@ -589,7 +895,14 @@ export default function AiStorePage() {
                   ) : (
                     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                       {filtered.map((it) => (
-                        <StoreCard key={it.id} item={it} onDelete={onDelete} />
+                        <StoreCard
+                          key={it.id}
+                          item={it}
+                          onDelete={onDelete}
+                          onCardClick={(id) => router.push(`/ai-store/${id}`)}
+                          bookmarked={bookmarkedIds.has(it.id)}
+                          onBookmarkToggle={onBookmarkToggle}
+                        />
                       ))}
                     </div>
                   )}

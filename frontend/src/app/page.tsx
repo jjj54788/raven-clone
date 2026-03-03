@@ -1,13 +1,13 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
-import { Menu } from 'lucide-react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { Menu, AlertTriangle } from 'lucide-react';
 import Sidebar from '@/components/Sidebar';
 import ChatHistory from '@/components/ChatHistory';
 import ChatArea from '@/components/ChatArea';
 import WelcomeScreen from '@/components/WelcomeScreen';
 import { useAuth, useModels, useSessions } from '@/hooks';
-import { sendStreamChat, createSession } from '@/lib/api';
+import { sendStreamChat, sendMixChat, createSession } from '@/lib/api';
 import { getModelKey } from '@/lib/teams';
 import { useLanguage } from '@/i18n/LanguageContext';
 
@@ -17,6 +17,8 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
   const [quotedText, setQuotedText] = useState('');
+  const [saveWarning, setSaveWarning] = useState<string | null>(null);
+  const [mixMode, setMixMode] = useState(false);
 
   // Use a ref to track the current session ID reliably across renders
   const currentSessionIdRef = useRef<string | null>(null);
@@ -28,7 +30,7 @@ export default function Home() {
   const { models, selectedModel, setSelectedModel } = useModels(authReady);
   const {
     sessions, activeSessionId, messages,
-    loadSessions, selectSession, newChat: hookNewChat, removeSession,
+    loadSessions, selectSession, newChat: hookNewChat, removeSession, renameSession,
     addMessage, updateMessage, setActiveSessionId,
   } = useSessions(authReady);
 
@@ -58,6 +60,11 @@ export default function Home() {
     currentSessionIdRef.current = sessionId;
   };
 
+  const handleSaveWarning = useCallback((msg: string) => {
+    setSaveWarning(msg);
+    window.setTimeout(() => setSaveWarning(null), 6000);
+  }, []);
+
   const handleQuote = (content: string) => {
     setQuotedText(content);
   };
@@ -66,7 +73,7 @@ export default function Home() {
     setQuotedText('');
   };
 
-  const handleSend = async (message: string, options?: { webSearch?: boolean }) => {
+  const handleSend = async (message: string, options?: { webSearch?: boolean; mixMode?: boolean }) => {
     if (loading) return;
 
     const runId = sendRunIdRef.current + 1;
@@ -77,32 +84,79 @@ export default function Home() {
     setLoading(true);
 
     const aiMsgId = `a-${Date.now()}`;
-    addMessage({
-      id: aiMsgId,
-      role: 'assistant',
-      content: '',
-      model: selectedModel?.name,
-      provider: selectedModel?.provider,
-    });
-    setStreamingMessageId(aiMsgId);
 
     try {
-      // Step 1: Ensure we have a session — use ref for latest value
+      // Step 1: Ensure we have a session
       let sessionId = currentSessionIdRef.current;
-
       if (!sessionId) {
-        console.log('[handleSend] No session, creating one...');
         const newSession = await createSession();
         if (runId !== sendRunIdRef.current) return;
         sessionId = newSession.id;
         currentSessionIdRef.current = sessionId;
         setActiveSessionId(sessionId);
-        console.log('[handleSend] Created session:', sessionId);
       }
-
       if (runId !== sendRunIdRef.current) return;
 
-      console.log('[handleSend] Using sessionId:', sessionId, 'model:', selectedModel?.id);
+      // ---- Mix Mode ----
+      if (options?.mixMode && models.length >= 2) {
+        addMessage({
+          id: aiMsgId,
+          role: 'assistant',
+          content: '',
+          model: 'Mix',
+          provider: 'Mix',
+          mixResults: [],
+        });
+        setStreamingMessageId(aiMsgId);
+
+        const modelIds = models.map(m => m.id);
+        const controller = new AbortController();
+        streamAbortRef.current = controller;
+
+        await sendMixChat(message, modelIds, {
+          sessionId,
+          webSearch: options.webSearch,
+          signal: controller.signal,
+          onModelResult: (result) => {
+            if (runId !== sendRunIdRef.current) return;
+            updateMessage(aiMsgId, (prev) => ({
+              mixResults: [...(prev.mixResults || []), result],
+            }));
+          },
+          onSynthesisResult: (content) => {
+            if (runId !== sendRunIdRef.current) return;
+            updateMessage(aiMsgId, { mixSynthesis: content, content });
+          },
+          onDone: () => {
+            if (runId !== sendRunIdRef.current) return;
+            if (streamAbortRef.current === controller) streamAbortRef.current = null;
+            setStreamingMessageId(null);
+            setLoading(false);
+            loadSessions();
+          },
+          onError: (error) => {
+            if (runId !== sendRunIdRef.current) return;
+            updateMessage(aiMsgId, {
+              content: `**Mix Error:** ${error}`,
+            });
+            if (streamAbortRef.current === controller) streamAbortRef.current = null;
+            setStreamingMessageId(null);
+            setLoading(false);
+          },
+        });
+
+        return;
+      }
+
+      // ---- Normal streaming mode ----
+      addMessage({
+        id: aiMsgId,
+        role: 'assistant',
+        content: '',
+        model: selectedModel?.name,
+        provider: selectedModel?.provider,
+      });
+      setStreamingMessageId(aiMsgId);
 
       let fullContent = '';
       let flushRaf: number | null = null;
@@ -121,7 +175,6 @@ export default function Home() {
       const controller = new AbortController();
       streamAbortRef.current = controller;
 
-      // Step 3: Stream chat
       const provider = selectedModel?.provider;
       const apiKey = provider ? getModelKey(provider) ?? undefined : undefined;
 
@@ -129,55 +182,40 @@ export default function Home() {
         message,
         selectedModel?.id,
         sessionId,
-        // onChunk
         (chunk: string) => {
           if (runId !== sendRunIdRef.current) return;
           fullContent += chunk;
           flush();
         },
-        // onDone
         () => {
           if (runId !== sendRunIdRef.current) return;
-          console.log('[handleSend] Stream done, refreshing sessions');
-          if (flushRaf != null) {
-            window.cancelAnimationFrame(flushRaf);
-            flushRaf = null;
-          }
+          if (flushRaf != null) { window.cancelAnimationFrame(flushRaf); flushRaf = null; }
           updateMessage(aiMsgId, { content: fullContent });
           if (streamAbortRef.current === controller) streamAbortRef.current = null;
           setStreamingMessageId(null);
           setLoading(false);
           loadSessions();
         },
-        // onError
         (error: string) => {
           if (runId !== sendRunIdRef.current) return;
-          console.error('[handleSend] Stream error:', error);
-          if (flushRaf != null) {
-            window.cancelAnimationFrame(flushRaf);
-            flushRaf = null;
-          }
+          if (flushRaf != null) { window.cancelAnimationFrame(flushRaf); flushRaf = null; }
           updateMessage(aiMsgId, {
-            content: fullContent || `**Error:** ${error}\n\nPlease ensure the backend is running (http://localhost:3001)`,
+            content: fullContent || `**Error:** ${error}`,
           });
           if (streamAbortRef.current === controller) streamAbortRef.current = null;
           setStreamingMessageId(null);
           setLoading(false);
           loadSessions();
         },
-        // webSearch
         options?.webSearch,
-        // signal
         controller.signal,
-        // apiKey
         apiKey,
-        // provider
         provider,
+        handleSaveWarning,
       );
     } catch (err: unknown) {
       if (runId !== sendRunIdRef.current) return;
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      console.error('[handleSend] Exception:', errorMessage);
       streamAbortRef.current = null;
       updateMessage(aiMsgId, {
         content: `**Error:** ${errorMessage}\n\nPlease ensure the backend is running (http://localhost:3001)`,
@@ -189,7 +227,7 @@ export default function Home() {
 
   if (!authReady) {
     return (
-      <div className="flex h-screen items-center justify-center bg-[#FAFAFA]">
+      <div className="flex h-screen items-center justify-center bg-[#FAF9F7]">
         <div className="text-gray-400">Loading...</div>
       </div>
     );
@@ -214,9 +252,10 @@ export default function Home() {
         onSelectSession={handleSelectSession}
         onNewChat={handleNewChat}
         onDeleteSession={removeSession}
+        onRenameSession={renameSession}
       />
 
-      <main className="relative flex flex-1 flex-col bg-[#FAFAFA]">
+      <main className="relative flex flex-1 flex-col bg-[#FAF9F7]">
         {!historyVisible && (
           <button
             type="button"
@@ -227,6 +266,14 @@ export default function Home() {
           >
             <Menu size={18} />
           </button>
+        )}
+        {saveWarning && (
+          <div className="pointer-events-none absolute bottom-24 left-1/2 z-20 -translate-x-1/2">
+            <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-700 shadow-md">
+              <AlertTriangle size={14} className="shrink-0" />
+              <span>{t('chat.saveWarning')}</span>
+            </div>
+          </div>
         )}
         {isChatting ? (
           <ChatArea
@@ -241,6 +288,8 @@ export default function Home() {
             quotedText={quotedText}
             onClearQuote={handleClearQuote}
             onQuote={handleQuote}
+            mixMode={mixMode}
+            onMixModeChange={setMixMode}
           />
         ) : (
           <WelcomeScreen

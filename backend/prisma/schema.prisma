@@ -26,6 +26,7 @@ model User {
   sessions Session[]
   todoLists TodoList[]
   storeCustomItems StoreCustomItem[]
+  storeBookmarks StoreBookmark[]
   dailyCheckIns DailyCheckIn[]
   teamsOwned Team[]
   teamMemberships TeamMember[]
@@ -39,6 +40,9 @@ model User {
   debateAgents DebateAgent[]
   debateSessions DebateSession[]
   debateTemplates DebateTemplate[]
+  knowledgeNotes KnowledgeNote[]
+  insightTopics InsightTopic[]
+  gameSaves GameSave[]
 }
 
 model Session {
@@ -74,6 +78,13 @@ enum TodoStatus {
   ARCHIVED
 }
 
+enum RepeatRule {
+  NONE
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
 model TodoList {
   id        String   @id @default(uuid())
   userId    String
@@ -90,22 +101,43 @@ model TodoList {
 }
 
 model TodoTask {
-  id          String     @id @default(uuid())
-  listId      String
-  title       String
-  description String?
-  status      TodoStatus @default(TODO)
-  priority    Int        @default(0)
-  dueAt       DateTime?
-  completedAt DateTime?
-  position    Int        @default(0)
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  id              String     @id @default(uuid())
+  listId          String
+  title           String
+  description     String?
+  status          TodoStatus @default(TODO)
+  priority        Int        @default(0)
+  dueAt           DateTime?
+  completedAt     DateTime?
+  position        Int        @default(0)
+  color           String?
+  repeatRule      RepeatRule @default(NONE)
+  repeatEndAt     DateTime?
+  knowledgeNoteId String?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
 
-  list TodoList @relation(fields: [listId], references: [id], onDelete: Cascade)
+  list          TodoList       @relation(fields: [listId], references: [id], onDelete: Cascade)
+  subtasks      SubTask[]
+  knowledgeNote KnowledgeNote? @relation(fields: [knowledgeNoteId], references: [id], onDelete: SetNull)
 
   @@index([listId])
   @@index([status, dueAt])
+  @@index([knowledgeNoteId])
+}
+
+model SubTask {
+  id        String   @id @default(uuid())
+  taskId    String
+  title     String
+  done      Boolean  @default(false)
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  task TodoTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, position])
 }
 
 model SignupAllowlistEmail {
@@ -156,6 +188,59 @@ model StoreCustomItem {
   @@index([type])
 }
 
+model StoreBookmark {
+  id        String   @id @default(uuid())
+  userId    String
+  itemId    String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, itemId])
+  @@index([userId])
+}
+
+model GithubRepoCache {
+  repoFullName    String    @id
+  stars           Int       @default(0)
+  forks           Int       @default(0)
+  openIssues      Int       @default(0)
+  pushedAt        DateTime?
+  starsSnapshot   Int       @default(0)
+  starsSnapshotAt DateTime?
+  starsGrowth7d   Int       @default(0)
+  updatedAt       DateTime  @updatedAt
+}
+
+model GithubTrendingRepo {
+  id              String    @id @default(uuid())
+  repoFullName    String    @unique
+  name            String
+  description     String
+  htmlUrl         String
+  language        String?
+  topics          String[]
+  stars           Int       @default(0)
+  forks           Int       @default(0)
+  openIssues      Int       @default(0)
+  pushedAt        DateTime?
+  starsSnapshot   Int       @default(0)
+  starsSnapshotAt DateTime?
+  starsGrowth7d   Int       @default(0)
+  aiSummaryZh     String?
+  keyFeatures     String[]
+  useCases        String[]
+  limitations     String?
+  evalScore       Json?
+  aiAnalyzedAt    DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([stars(sort: Desc)])
+  @@index([starsGrowth7d(sort: Desc)])
+  @@index([pushedAt(sort: Desc)])
+}
+
 model DailyCheckIn {
   id        String   @id @default(uuid())
   userId    String
@@ -168,9 +253,41 @@ model DailyCheckIn {
   @@index([userId, createdAt])
 }
 
+model KnowledgeNote {
+  id         String    @id @default(uuid())
+  userId     String
+  title      String
+  content    String
+  source     String?
+  sourceUrl  String?
+  tags       String[]  @default([])
+  metadata   Json?
+  embedding  Float[]   @default([])
+  embeddedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  todoTasks TodoTask[]
+
+  @@index([userId, createdAt])
+}
+
 enum TeamMemberRole {
   OWNER
   MEMBER
+}
+
+enum TeamStatus {
+  ACTIVE
+  PAUSED
+  ARCHIVED
+}
+
+enum TeamAssistantStatus {
+  IDLE
+  RUNNING
+  DONE
 }
 
 enum TeamMissionStatus {
@@ -206,9 +323,12 @@ model Team {
   name        String
   description String?
   tags        String[] @default([])
-  isPublic    Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  isPublic    Boolean    @default(false)
+  goal        String?
+  status      TeamStatus @default(ACTIVE)
+  canvasJson  Json?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
 
   owner      User            @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
   members    TeamMember[]
@@ -243,10 +363,14 @@ model TeamAssistant {
   roleTitle       String?
   roleDescription String?
   currentGoal     String?
-  isLeader        Boolean  @default(false)
-  sortOrder       Int      @default(0)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  isLeader        Boolean             @default(false)
+  sortOrder       Int                 @default(0)
+  catalogId       String?
+  iconText        String?
+  accent          String?
+  asStatus        TeamAssistantStatus @default(IDLE)
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
 
   team           Team                 @relation(fields: [teamId], references: [id], onDelete: Cascade)
   leaderMissions TeamMission[]        @relation("TeamMissionLeader")
@@ -613,4 +737,256 @@ model DebateTemplate {
 
   @@index([userId])
   @@index([isSystem])
+}
+
+// ─── AI Insights ─────────────────────────────────────────────────────────────
+
+enum InsightVisibility {
+  PUBLIC
+  PRIVATE
+}
+
+enum InsightCategory {
+  MACRO
+  TECH
+  CORP
+}
+
+enum InsightIcon {
+  GLOBE
+  CHIP
+  BUILDING
+  NETWORK
+}
+
+enum InsightTaskStatus {
+  PENDING
+  IN_PROGRESS
+  DONE
+}
+
+enum InsightDirectionStatus {
+  PENDING
+  IN_PROGRESS
+  DONE
+}
+
+enum InsightAiAgentStatus {
+  IDLE
+  WORKING
+  OFFLINE
+}
+
+enum InsightResearchStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  ERROR
+  PAUSED
+}
+
+model InsightTopic {
+  id         String            @id @default(uuid())
+  userId     String
+  title      String
+  subtitle   String?
+  category   InsightCategory   @default(MACRO)
+  visibility InsightVisibility @default(PRIVATE)
+  icon       InsightIcon       @default(GLOBE)
+  accent     Json?
+  shareToken String?           @unique
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+
+  user        User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team        InsightResearchMember[]
+  aiTeam      InsightAiAgent[]
+  directions  InsightDirection[]
+  tasks       InsightTask[]
+  research    InsightResearchSession?
+  collab      InsightCollabEvent[]
+  report      InsightReportSection[]
+  history     InsightHistoryItem[]
+  credibility InsightCredibility?
+  references  InsightReference[]
+  claims      InsightClaim[]
+
+  @@index([userId, createdAt])
+}
+
+model InsightResearchMember {
+  id        String @id @default(uuid())
+  topicId   String
+  name      String
+  role      String
+  status    String @default("active")
+  taskCount Int    @default(0)
+
+  topic InsightTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@index([topicId])
+}
+
+model InsightAiAgent {
+  id       String               @id @default(uuid())
+  topicId  String
+  name     String
+  role     String
+  model    String
+  status   InsightAiAgentStatus @default(IDLE)
+  isLeader Boolean              @default(false)
+  focus    String?
+
+  topic InsightTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@index([topicId])
+}
+
+model InsightDirection {
+  id      String                 @id @default(uuid())
+  topicId String
+  label   String
+  status  InsightDirectionStatus @default(PENDING)
+
+  topic InsightTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@index([topicId])
+}
+
+model InsightTask {
+  id       String            @id @default(uuid())
+  topicId  String
+  taskId   String
+  title    String
+  subtitle String?
+  owner    String?
+  model    String?
+  status   InsightTaskStatus @default(PENDING)
+
+  topic InsightTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@index([topicId])
+}
+
+model InsightResearchSession {
+  id          String                @id @default(uuid())
+  topicId     String                @unique
+  status      InsightResearchStatus @default(PENDING)
+  stages      Json                  @default("[]")
+  discussions Json                  @default("[]")
+  output      Json?
+  checkpoints Json                  @default("{}")
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+
+  topic InsightTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+}
+
+model InsightCollabEvent {
+  id        String   @id @default(uuid())
+  topicId   String
+  type      String   @default("info")
+  actor     String
+  detail    String
+  timestamp DateTime @default(now())
+
+  topic InsightTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@index([topicId, timestamp])
+}
+
+model InsightReportSection {
+  id         String   @id @default(uuid())
+  topicId    String
+  sortOrder  Int      @default(0)
+  title      String
+  summary    String
+  highlights String[] @default([])
+
+  topic InsightTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@index([topicId, sortOrder])
+}
+
+model InsightHistoryItem {
+  id                String   @id @default(uuid())
+  topicId           String
+  round             Int
+  date              String
+  dimensionsUpdated Int      @default(0)
+  sourcesAdded      Int      @default(0)
+  interactions      Int      @default(0)
+  summary           String?
+  createdAt         DateTime @default(now())
+
+  topic InsightTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@index([topicId])
+}
+
+model InsightCredibility {
+  id          String   @id @default(uuid())
+  topicId     String   @unique
+  overall     Int      @default(0)
+  metrics     Json     @default("[]")
+  sources     Json     @default("[]")
+  timeliness  Json     @default("[]")
+  coverage    Json     @default("[]")
+  quality     Json     @default("[]")
+  limitations String[] @default([])
+  updatedAt   DateTime @updatedAt
+
+  topic InsightTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+}
+
+model InsightReference {
+  id      String  @id @default(uuid())
+  topicId String
+  refId   String
+  title   String
+  domain  String
+  excerpt String?
+  score   Float   @default(0)
+  tag     String?
+
+  topic InsightTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@index([topicId])
+}
+
+// Phase D2: Claim-level evidence chain
+model InsightClaim {
+  id             String   @id @default(uuid())
+  topicId        String
+  directionLabel String
+  statement      String
+  confidence     Float    @default(0.7)
+  sourceQuery    String   @default("")
+  contestedBy    String?
+  verified       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  topic InsightTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@index([topicId])
+  @@index([topicId, directionLabel])
+}
+
+// ---- Frostland Game ----
+model GameSave {
+  id           String   @id @default(uuid())
+  userId       String
+  name         String   @default("Autosave")
+  gameState    Json
+  daysSurvived Int      @default(0)
+  score        Int      @default(0)
+  isAutosave   Boolean  @default(false)
+  isCompleted  Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, updatedAt])
+  @@index([isCompleted, score])
 }

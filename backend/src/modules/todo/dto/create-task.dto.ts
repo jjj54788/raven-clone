@@ -1,4 +1,5 @@
-import { IsDateString, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { IsDateString, IsEnum, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { RepeatRule } from '@prisma/client';
 
 export class CreateTodoTaskDto {
   @IsString()
@@ -24,5 +25,18 @@ export class CreateTodoTaskDto {
   @IsOptional()
   @IsDateString()
   dueAt?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  color?: string;
+
+  @IsOptional()
+  @IsEnum(RepeatRule)
+  repeatRule?: RepeatRule;
+
+  @IsOptional()
+  @IsDateString()
+  repeatEndAt?: string;
 }
 

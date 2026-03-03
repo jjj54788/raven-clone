@@ -12,8 +12,8 @@ export interface NotificationItem {
   action?: { href: string; label: { en: string; zh: string } };
 }
 
-const STORAGE_KEY = 'raven_notifications_v1';
-const EVENT_NAME = 'raven:notifications';
+const STORAGE_KEY = 'gewu_notifications_v1';
+const EVENT_NAME = 'gewu:notifications';
 
 function safeParseJson(raw: string | null): unknown {
   if (!raw) return null;
@@ -93,6 +93,7 @@ export function saveNotifications(items: NotificationItem[]) {
 export function loadOrSeedNotifications(): NotificationItem[] {
   if (typeof window === 'undefined') return [];
   const raw = localStorage.getItem(STORAGE_KEY);
+
   if (raw === null) {
     const seeded = getDefaultNotifications();
     saveNotifications(seeded);
@@ -100,12 +101,25 @@ export function loadOrSeedNotifications(): NotificationItem[] {
   }
 
   const parsed = safeParseJson(raw);
-  if (Array.isArray(parsed)) return loadNotifications();
+  if (!Array.isArray(parsed)) {
+    // Storage exists but is corrupt; reset to defaults.
+    const seeded = getDefaultNotifications();
+    saveNotifications(seeded);
+    return seeded;
+  }
 
-  // Storage exists but is corrupt; reset to defaults.
-  const seeded = getDefaultNotifications();
-  saveNotifications(seeded);
-  return seeded;
+  // Existing data — ensure the version notification matches current APP_VERSION.
+  const items = loadNotifications();
+  const currentUpdateId = `update-${APP_VERSION}`;
+  if (!items.some((n) => n.id === currentUpdateId)) {
+    const [versionNotif] = getDefaultNotifications();
+    const withoutOldUpdates = items.filter((n) => !n.id.startsWith('update-'));
+    const updated = [versionNotif, ...withoutOldUpdates];
+    saveNotifications(updated);
+    return updated;
+  }
+
+  return items;
 }
 
 export function emitNotificationsChanged() {

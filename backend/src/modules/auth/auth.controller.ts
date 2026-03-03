@@ -6,6 +6,7 @@ import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { GoogleLoginDto } from './dto/google-login.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
 
 @Controller('api/v1/auth')
 export class AuthController {
@@ -24,6 +25,11 @@ export class AuthController {
   @Post('google')
   async googleLogin(@Body() body: GoogleLoginDto) {
     return this.authService.googleLogin(body.idToken);
+  }
+
+  @Post('refresh')
+  async refresh(@Body() body: RefreshTokenDto) {
+    return this.authService.refreshTokens(body.refreshToken);
   }
 
   @Get('me')

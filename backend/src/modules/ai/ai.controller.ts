@@ -1,9 +1,10 @@
-import { Controller, Get, Post, Body, Res, UseGuards, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Post, Body, Res, UseGuards, ServiceUnavailableException } from '@nestjs/common';
 import { Response } from 'express';
 import { tavily } from '@tavily/core';
-import { AiService } from './ai.service';
+import { AiService, ModelConfig } from './ai.service';
 import { SimpleChatDto } from './dto/simple-chat.dto';
 import { StreamChatDto } from './dto/stream-chat.dto';
+import { MixChatDto } from './dto/mix-chat.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AiUsageService } from './ai-usage.service';
@@ -18,11 +19,11 @@ function getCurrentDate(): string {
 }
 
 function getDefaultSystemPrompt(): string {
-  return `You are Raven AI, a helpful assistant. Today's date is ${getCurrentDate()}. Reply in the same language as the user.`;
+  return `You are Gewu AI (格物), a helpful assistant. Today's date is ${getCurrentDate()}. Reply in the same language as the user.`;
 }
 
 function buildWebSearchPrompt(searchResults: string): string {
-  return `You are Raven AI, a helpful assistant with web search capabilities. Today's date is ${getCurrentDate()}.
+  return `You are Gewu AI (格物), a helpful assistant with web search capabilities. Today's date is ${getCurrentDate()}.
 
 You have just performed a web search and obtained the following results:
 
@@ -82,11 +83,7 @@ export class AiController {
       ? await this.aiService.loadSessionHistory(body.sessionId, userId)
       : null;
 
-    const useOwnKey = !!apiKey;
-    const cost = useOwnKey ? 0 : this.aiUsageService.getChatCreditCost({ webSearch: body.webSearch });
-    const creditsRemaining = cost > 0 ? await this.aiUsageService.consumeCreditsOrThrow(userId, cost) : null;
-
-    // Web search if enabled
+    // Web search if enabled — throws if unavailable so credits are never deducted for failed searches
     let systemPrompt = getDefaultSystemPrompt();
     if (body.webSearch) {
       const searchResults = await this.performWebSearch(body.message);
@@ -108,19 +105,27 @@ export class AiController {
 
     msgs.push({ role: 'user', content: body.message });
 
+    // Run AI call BEFORE deducting credits — no charge if AI fails
     const content = await this.aiService.chat(selectedModel, msgs, apiKey);
 
+    // Deduct credits only after a successful AI response
+    const useOwnKey = !!apiKey;
+    const cost = useOwnKey ? 0 : this.aiUsageService.getChatCreditCost({ webSearch: body.webSearch });
+    const creditsRemaining = cost > 0 ? await this.aiUsageService.consumeCreditsOrThrow(userId, cost) : null;
+
     // Save messages to database if session exists
+    let messageSaved = true;
     if (body.sessionId) {
       try {
         await this.aiService.saveMessages(body.sessionId, userId, body.message, content, selectedModel.id);
       } catch (err) {
+        messageSaved = false;
         const message = err instanceof Error ? err.message : 'Unknown error';
-        console.warn('[simple-chat] Failed to save messages:', message);
+        console.error('[simple-chat] Failed to save messages:', message);
       }
     }
 
-    return { content, model: selectedModel.id, provider: selectedModel.provider, creditsRemaining };
+    return { content, model: selectedModel.id, provider: selectedModel.provider, creditsRemaining, messageSaved };
   }
 
   /**
@@ -174,55 +179,78 @@ export class AiController {
         ? await this.aiService.loadSessionHistory(body.sessionId, userId)
         : null;
 
+      // Web search if enabled — throws if unavailable so credits are never deducted for failed searches
+      let systemPrompt = getDefaultSystemPrompt();
+      if (body.webSearch) {
+        debugLog(`[stream-chat] Performing web search`);
+        const searchResults = await this.performWebSearch(body.message);
+        systemPrompt = buildWebSearchPrompt(searchResults);
+        debugLog(`[stream-chat] Web search complete, results length: ${searchResults.length}`);
+      }
+
+      // Build message history
+      const msgs: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+        { role: 'system', content: systemPrompt },
+      ];
+
+      if (history) {
+        debugLog(`[stream-chat] Loaded ${history.length} history messages`);
+        msgs.push(...history);
+      }
+
+      msgs.push({ role: 'user', content: body.message });
+
+      // Set SSE headers before streaming
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
+      res.flushHeaders();
+
+      // Stream AI response — throws on AI provider errors, does NOT send done:true or res.end()
+      let fullContent: string;
+      try {
+        fullContent = await this.aiService.chatStream(selectedModel, msgs, res, apiKey);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        console.error(`[stream-chat] AI error:`, message);
+        res.write(`data: ${JSON.stringify({ error: message, done: true })}\n\n`);
+        res.end();
+        return;
+      }
+
+      debugLog(`[stream-chat] Stream complete, content length: ${fullContent.length}`);
+
+      // Deduct credits only after successful AI response — no charge if AI failed
       const useOwnKey = !!apiKey;
       const cost = useOwnKey ? 0 : this.aiUsageService.getChatCreditCost({ webSearch: body.webSearch });
       if (cost > 0) {
-        await this.aiUsageService.consumeCreditsOrThrow(userId, cost);
+        try {
+          await this.aiUsageService.consumeCreditsOrThrow(userId, cost);
+        } catch (err: unknown) {
+          // Credit deduction failed after a successful response — log but don't fail the response
+          const message = err instanceof Error ? err.message : 'Unknown error';
+          console.error(`[stream-chat] Credit deduction failed: ${message}`);
+        }
       }
 
-    // Web search if enabled
-    let systemPrompt = getDefaultSystemPrompt();
-    if (body.webSearch) {
-      debugLog(`[stream-chat] Performing web search`);
-      const searchResults = await this.performWebSearch(body.message);
-      systemPrompt = buildWebSearchPrompt(searchResults);
-      debugLog(`[stream-chat] Web search complete, results length: ${searchResults.length}`);
-    }
-
-    // Build message history
-    const msgs: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
-      { role: 'system', content: systemPrompt },
-    ];
-
-    if (history) {
-      debugLog(`[stream-chat] Loaded ${history.length} history messages`);
-      msgs.push(...history);
-    }
-
-    msgs.push({ role: 'user', content: body.message });
-
-    // Always respond as SSE
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no');
-    res.flushHeaders();
-
-    try {
-      const fullContent = await this.aiService.chatStream(selectedModel, msgs, res, apiKey);
-      debugLog(`[stream-chat] Stream complete, content length: ${fullContent.length}`);
-
-      // Save messages to database if session exists
+      // Save messages and send final SSE frame
       if (body.sessionId) {
         debugLog(`[stream-chat] Saving messages to session ${body.sessionId}`);
         try {
           await this.aiService.saveMessages(body.sessionId, userId, body.message, fullContent, selectedModel.id);
           debugLog(`[stream-chat] Messages saved successfully`);
+          res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
         } catch (err) {
           const message = err instanceof Error ? err.message : 'Unknown error';
-          console.warn(`[stream-chat] Failed to save messages: ${message}`);
+          console.error(`[stream-chat] Failed to save messages: ${message}`);
+          // Notify frontend that save failed so it can show a warning
+          res.write(`data: ${JSON.stringify({ saveWarning: 'Message could not be saved to history', done: true })}\n\n`);
         }
+      } else {
+        res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
       }
+      res.end();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       console.error(`[stream-chat] Error:`, message);
@@ -232,22 +260,128 @@ export class AiController {
       }
       res.write(`data: ${JSON.stringify({ error: message, done: true })}\n\n`);
       res.end();
-    }
     } finally {
       releaseOnce();
     }
   }
 
   /**
-   * Perform web search using Tavily API
+   * Mix Chat — parallel multi-model query + synthesis via SSE
+   */
+  @Post('mix-chat')
+  @UseGuards(JwtAuthGuard)
+  async mixChat(
+    @Body() body: MixChatDto,
+    @CurrentUser() userId: string,
+    @Res() res: Response,
+  ) {
+    // Resolve requested models
+    const resolvedModels: ModelConfig[] = [];
+    for (const id of body.models) {
+      const m = this.aiService.getModelById(id);
+      if (m) resolvedModels.push(m);
+    }
+    if (resolvedModels.length < 2) {
+      throw new BadRequestException('At least 2 valid model IDs are required for mix chat');
+    }
+
+    this.aiUsageService.assertChatRateLimit(userId, { webSearch: body.webSearch });
+
+    // Resolve synthesis model
+    const synthModelId = body.synthesisModel || resolvedModels[0].id;
+    const synthModel = this.aiService.getModelById(synthModelId) || resolvedModels[0];
+
+    try {
+      const history = body.sessionId
+        ? await this.aiService.loadSessionHistory(body.sessionId, userId)
+        : null;
+
+      let systemPrompt = getDefaultSystemPrompt();
+      if (body.webSearch) {
+        const searchResults = await this.performWebSearch(body.message);
+        systemPrompt = buildWebSearchPrompt(searchResults);
+      }
+
+      const msgs: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+        { role: 'system', content: systemPrompt },
+      ];
+      if (history) msgs.push(...history);
+      msgs.push({ role: 'user', content: body.message });
+
+      // SSE headers
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
+      res.flushHeaders();
+
+      // Stage 1: parallel model calls
+      res.write(`data: ${JSON.stringify({ type: 'mix-start', modelCount: resolvedModels.length })}\n\n`);
+
+      const results = await this.aiService.mixChat(resolvedModels, msgs);
+
+      // Send each model's result
+      for (const result of results) {
+        res.write(`data: ${JSON.stringify({ type: 'model-result', ...result })}\n\n`);
+      }
+
+      // Stage 2: synthesis
+      const successfulAnswers = results.filter(r => !r.error && r.content);
+      if (successfulAnswers.length >= 2) {
+        res.write(`data: ${JSON.stringify({ type: 'synthesis-start', model: synthModel.name })}\n\n`);
+
+        const synthesis = await this.aiService.synthesize(
+          synthModel,
+          body.message,
+          successfulAnswers.map(a => ({ modelName: a.modelName, content: a.content })),
+        );
+
+        res.write(`data: ${JSON.stringify({ type: 'synthesis-result', content: synthesis })}\n\n`);
+      }
+
+      // Deduct credits (count as N model calls)
+      const cost = this.aiUsageService.getChatCreditCost({ webSearch: body.webSearch }) * resolvedModels.length;
+      if (cost > 0) {
+        try {
+          await this.aiUsageService.consumeCreditsOrThrow(userId, cost);
+        } catch {
+          // log but don't fail
+        }
+      }
+
+      // Save the synthesis to session if provided
+      if (body.sessionId && successfulAnswers.length >= 2) {
+        const lastSynthesis = results.find(r => !r.error)?.content || '';
+        try {
+          await this.aiService.saveMessages(body.sessionId, userId, body.message, lastSynthesis, `mix:${resolvedModels.map(m => m.id).join(',')}`);
+        } catch {
+          // ignore save failure
+        }
+      }
+
+      res.write(`data: ${JSON.stringify({ type: 'done', done: true })}\n\n`);
+      res.end();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      if (!res.headersSent) {
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.flushHeaders();
+      }
+      res.write(`data: ${JSON.stringify({ type: 'error', error: message, done: true })}\n\n`);
+      res.end();
+    }
+  }
+
+  /**
+   * Perform web search using Tavily API.
+   * Throws ServiceUnavailableException if Tavily is not configured or the search fails.
    */
   private async performWebSearch(query: string): Promise<string> {
     const apiKey = process.env.TAVILY_API_KEY;
     debugLog(`[webSearch] API key present: ${!!apiKey}`);
 
     if (!apiKey) {
-      console.warn('[webSearch] TAVILY_API_KEY not configured');
-      return 'Web search is not available. TAVILY_API_KEY is not configured in backend/.env';
+      throw new ServiceUnavailableException('Web search is not available: TAVILY_API_KEY is not configured in backend/.env');
     }
 
     try {
@@ -262,7 +396,7 @@ export class AiController {
 
       if (!response.results || response.results.length === 0) {
         debugLog('[webSearch] No results returned');
-        return 'No search results found.';
+        return 'No relevant search results found.';
       }
 
       const results = response.results.map((r, i) => (
@@ -272,10 +406,10 @@ export class AiController {
       debugLog(`[webSearch] Final results length: ${results.length} chars`);
       return results;
     } catch (err) {
+      if (err instanceof ServiceUnavailableException) throw err;
       const message = err instanceof Error ? err.message : 'Unknown error';
       console.error('[webSearch] Tavily search failed:', message);
-      debugLog('[webSearch] Full error:', err);
-      return `Web search failed: ${message}`;
+      throw new ServiceUnavailableException(`Web search failed: ${message}`);
     }
   }
 }

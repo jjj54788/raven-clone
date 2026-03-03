@@ -6,11 +6,12 @@ import {
   buildTeamCanvas,
   getAssistantCatalog,
   resolveAssistants,
-  hasModelKey,
+  modelToCatalogItem,
   type Team,
   type TeamAssistant,
   type TeamAssistantCatalogItem,
 } from '@/lib/teams';
+import { getModels } from '@/lib/api';
 import { useLanguage } from '@/i18n/LanguageContext';
 import ModelSettingsModal from '@/components/teams/ModelSettingsModal';
 
@@ -149,11 +150,45 @@ export default function EditTeamModal({ open, team, onClose, onSave }: EditTeamM
     setDraft(makeDraft(team));
     setTagInput('');
     setError(null);
-    setCatalog(getAssistantCatalog());
+
+    // Existing team assistants as virtual catalog items (backend UUID as ID)
+    const existingVirtual: TeamAssistantCatalogItem[] = team.assistants.map((a) => ({
+      id: a.id,
+      name: a.name,
+      model: a.model,
+      provider: a.provider,
+      type: a.type,
+      role: a.role,
+      summary: '',
+      iconText: a.iconText,
+      accent: a.accent,
+      source: 'builtin' as const,
+      requiresKey: false,
+    }));
+
+    // Load dynamic catalog; new items not already in the team
+    getModels()
+      .then((models: any[]) => {
+        const newItems = Array.isArray(models)
+          ? models
+              .filter((m) => !team.assistants.some((a) => a.model === m.id))
+              .map(modelToCatalogItem)
+          : [];
+        const custom = getAssistantCatalog().filter((c) => c.source === 'custom');
+        setCatalog([...existingVirtual, ...newItems, ...custom]);
+      })
+      .catch(() => {
+        const custom = getAssistantCatalog().filter((c) => c.source === 'custom');
+        setCatalog([...existingVirtual, ...custom]);
+      });
   }, [open, team]);
 
   useEffect(() => {
-    setCatalog(getAssistantCatalog());
+    const custom = getAssistantCatalog().filter((c) => c.source === 'custom');
+    setCatalog((prev) => {
+      const nonCustom = prev.filter((c) => c.source !== 'custom');
+      return [...nonCustom, ...custom];
+    });
   }, [catalogVersion]);
 
   const toggleAssistant = (id: string) => {
@@ -216,15 +251,26 @@ export default function EditTeamModal({ open, team, onClose, onSave }: EditTeamM
       setError(uiText.errorAssistants);
       return;
     }
-    const assistantsBase = resolveAssistants(draft.assistantIds);
-    const assistants = assistantsBase.map((assistant) => {
-      const existing = team.assistants.find((a) => a.id === assistant.id);
-      return {
-        ...assistant,
-        role: draft.roles[assistant.id] || existing?.role || assistant.role,
-        status: draft.statuses[assistant.id] || existing?.status || DEFAULT_STATUS,
-      };
-    });
+    // Resolve assistants: existing team members by UUID, new ones from catalog by model ID
+    const assistants: TeamAssistant[] = draft.assistantIds
+      .map((id) => {
+        const existing = team.assistants.find((a) => a.id === id);
+        if (existing) {
+          return {
+            ...existing,
+            role: draft.roles[id] ?? existing.role,
+            status: (draft.statuses[id] ?? existing.status) || DEFAULT_STATUS,
+          };
+        }
+        const resolved = resolveAssistants([id])[0];
+        if (!resolved) return null;
+        return {
+          ...resolved,
+          role: draft.roles[id] ?? resolved.role,
+          status: draft.statuses[id] ?? DEFAULT_STATUS,
+        };
+      })
+      .filter(Boolean) as TeamAssistant[];
 
     const leaderId = draft.leaderId && assistants.some((a) => a.id === draft.leaderId)
       ? draft.leaderId
@@ -365,9 +411,8 @@ export default function EditTeamModal({ open, team, onClose, onSave }: EditTeamM
             <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
               {catalog.map((assistant: TeamAssistantCatalogItem) => {
                 const selected = draft.assistantIds.includes(assistant.id);
-                const keyReady = assistant.keyProvider ? hasModelKey(assistant.keyProvider) : true;
-                const available = assistant.requiresKey === false ? true : keyReady;
-                const locked = !available && !selected;
+                const available = true; // backend manages API keys
+                const locked = false;
                 const roleValue = draft.roles[assistant.id] || assistant.role;
                 const statusValue = draft.statuses[assistant.id] || DEFAULT_STATUS;
                 const isLeader = draft.leaderId === assistant.id;
@@ -377,20 +422,12 @@ export default function EditTeamModal({ open, team, onClose, onSave }: EditTeamM
                     className={[
                       'rounded-xl border px-3 py-3 text-left transition-colors',
                       selected ? 'border-purple-300 bg-purple-50' : 'border-gray-200 bg-white',
-                      locked ? 'opacity-60' : '',
                     ].join(' ')}
                   >
                     <div className="flex items-center gap-3">
                       <button
                         type="button"
-                        onClick={() => {
-                          if (locked) {
-                            setModelSettingsOpen(true);
-                            return;
-                          }
-                          toggleAssistant(assistant.id);
-                        }}
-                        disabled={locked}
+                        onClick={() => toggleAssistant(assistant.id)}
                         className="flex items-center gap-3 text-left"
                       >
                         <div
@@ -411,9 +448,6 @@ export default function EditTeamModal({ open, team, onClose, onSave }: EditTeamM
                           <p className="mt-1 text-xs text-gray-400">
                             {selected ? uiText.selected : uiText.notSelected}
                           </p>
-                          {!available && (
-                            <p className="mt-1 text-[11px] text-amber-600">{uiText.assistantKeyMissing}</p>
-                          )}
                         </div>
                       </button>
 

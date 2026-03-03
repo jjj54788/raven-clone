@@ -2,73 +2,107 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import {
-  createTeamFromDraft,
-  loadTeams,
-  saveTeams,
-  type Team,
-  type TeamDraft,
+  listTeams, createTeam, updateTeam, deleteTeam,
+  createTeamAssistant, deleteTeamAssistant, updateTeamAssistant,
+} from '@/lib/api';
+import {
+  apiTeamSummaryToTeam,
+  getAssistantCatalog,
+  type Team, type TeamDraft, type TeamAssistantCatalogItem,
 } from '@/lib/teams';
 
-export function useTeams(ownerName?: string, enabled = true) {
+export function useTeams(authReady = true) {
   const [teams, setTeams] = useState<Team[]>([]);
   const [ready, setReady] = useState(false);
 
+  const refresh = useCallback(async () => {
+    try {
+      const data = await listTeams();
+      setTeams((data ?? []).map(apiTeamSummaryToTeam));
+    } catch {
+      setTeams([]);
+    } finally {
+      setReady(true);
+    }
+  }, []);
+
   useEffect(() => {
-    if (!enabled) return;
-    const loaded = loadTeams(ownerName);
-    setTeams(loaded);
-    setReady(true);
-  }, [ownerName, enabled]);
+    if (authReady) refresh();
+  }, [authReady, refresh]);
 
-  const persist = useCallback((next: Team[]) => {
-    setTeams(next);
-    saveTeams(next);
-  }, []);
+  const addTeam = useCallback(async (draft: TeamDraft & { assistantItems?: TeamAssistantCatalogItem[] }) => {
+    const team = await createTeam({
+      name: draft.name,
+      description: draft.description,
+      tags: draft.tags,
+      goal: draft.goal,
+    });
 
-  const addTeam = useCallback(
-    (draft: TeamDraft) => {
-      const created = createTeamFromDraft(draft, ownerName);
-      setTeams((prev) => {
-        const next = [created, ...prev];
-        saveTeams(next);
-        return next;
+    // Resolve catalog items — prefer explicit items, fall back to static catalog lookup
+    const catalog = getAssistantCatalog();
+    const orderedItems = draft.assistantItems
+      ?? draft.assistantIds.map((id) => catalog.find((c) => c.id === id)).filter((c): c is TeamAssistantCatalogItem => !!c);
+
+    for (let i = 0; i < orderedItems.length; i++) {
+      const item = orderedItems[i];
+      await createTeamAssistant(team.id, {
+        displayName: item.name,
+        modelId: item.model,
+        provider: item.provider,
+        roleTitle: item.role || undefined,
+        isLeader: i === 0,
+        sortOrder: i,
+        iconText: item.iconText,
+        accent: item.accent,
+        catalogId: item.id,
       });
-      return created;
-    },
-    [ownerName],
-  );
+    }
 
-  const replaceTeam = useCallback((id: string, updater: (team: Team) => Team) => {
-    setTeams((prev) => {
-      const next = prev.map((team) => (team.id === id ? updater(team) : team));
-      saveTeams(next);
-      return next;
+    await refresh();
+    return team;
+  }, [refresh]);
+
+  const replaceTeam = useCallback(async (updated: Team, prev: Team) => {
+    await updateTeam(updated.id, {
+      name: updated.name,
+      description: updated.description,
+      tags: updated.tags,
+      goal: updated.goal,
+      status: updated.status?.toUpperCase(),
+      canvasJson: updated.canvas ?? null,
     });
-  }, []);
 
-  const removeTeam = useCallback((id: string) => {
-    setTeams((prev) => {
-      const next = prev.filter((team) => team.id !== id);
-      saveTeams(next);
-      return next;
-    });
-  }, []);
+    const oldIds = new Set(prev.assistants.map((a) => a.id));
+    const newIds = new Set(updated.assistants.map((a) => a.id));
 
-  const refresh = useCallback(() => {
-    if (!enabled) return;
-    const loaded = loadTeams(ownerName);
-    setTeams(loaded);
-    setReady(true);
-  }, [ownerName, enabled]);
+    for (const a of prev.assistants) {
+      if (!newIds.has(a.id)) await deleteTeamAssistant(updated.id, a.id);
+    }
 
-  return {
-    teams,
-    ready,
-    addTeam,
-    replaceTeam,
-    removeTeam,
-    refresh,
-  };
+    for (const a of updated.assistants) {
+      if (oldIds.has(a.id)) {
+        await updateTeamAssistant(updated.id, a.id, {
+          roleTitle: a.role || undefined,
+          asStatus: a.status?.toUpperCase(),
+          isLeader: a.id === updated.leaderId,
+          sortOrder: updated.assistants.indexOf(a),
+        });
+      }
+    }
+
+    await refresh();
+  }, [refresh]);
+
+  const removeTeam = useCallback(async (teamId: string) => {
+    setTeams((prev) => prev.filter((t) => t.id !== teamId));
+    try {
+      await deleteTeam(teamId);
+    } catch {
+      await refresh();
+    }
+  }, [refresh]);
+
+  return { teams, ready, addTeam, replaceTeam, removeTeam, refresh };
 }
 
 

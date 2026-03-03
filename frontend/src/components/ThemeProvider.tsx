@@ -29,7 +29,7 @@ export default function ThemeProvider({ children }: { children: React.ReactNode 
     const unsubscribeUser = subscribeUserChanged(sync);
     const onStorage = (event: StorageEvent) => {
       if (!event.key) return;
-      if (event.key.startsWith('raven_profile_v1') || event.key === 'raven_user') {
+      if (event.key.startsWith('gewu_profile_v1') || event.key === 'gewu_user') {
         sync();
       }
     };

@@ -2,6 +2,8 @@ import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { ExploreService } from './explore.service';
 import { YoutubeExploreQueryDto } from './dto/youtube-explore-query.dto';
+import { PapersExploreQueryDto } from './dto/papers-explore-query.dto';
+import { BlogsExploreQueryDto } from './dto/blogs-explore-query.dto';
 
 @Controller('api/v1/explore')
 @UseGuards(JwtAuthGuard)
@@ -11,5 +13,15 @@ export class ExploreController {
   @Get('youtube')
   async getYoutube(@Query() query: YoutubeExploreQueryDto) {
     return this.exploreService.searchYoutube(query);
+  }
+
+  @Get('papers')
+  async getPapers(@Query() query: PapersExploreQueryDto) {
+    return this.exploreService.searchPapers(query);
+  }
+
+  @Get('blogs')
+  async getBlogs(@Query() query: BlogsExploreQueryDto) {
+    return this.exploreService.searchBlogs(query);
   }
 }

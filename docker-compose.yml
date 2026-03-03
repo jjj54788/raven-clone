@@ -1,18 +1,16 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:17
-    container_name: raven-postgres
+    container_name: gewu-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: admin123
-      POSTGRES_DB: raven_ai
+      POSTGRES_DB: gewu_ai
     ports:
-      - '5432:5432'
+      - '5433:5432'
     volumes:
-      - raven_pgdata:/var/lib/postgresql/data
+      - gewu_pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U postgres']
       interval: 5s
@@ -20,4 +18,4 @@ services:
       retries: 5
 
 volumes:
-  raven_pgdata:
+  gewu_pgdata:

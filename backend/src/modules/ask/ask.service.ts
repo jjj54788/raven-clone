@@ -37,6 +37,18 @@ export class AskService {
     });
   }
 
+  async renameSession(sessionId: string, userId: string, title: string) {
+    const session = await this.prisma.session.findFirst({ where: { id: sessionId, userId } });
+    if (!session) {
+      throw new NotFoundException('Session not found');
+    }
+    return this.prisma.session.update({
+      where: { id: sessionId },
+      data: { title: title.trim().slice(0, 100) },
+      select: { id: true, title: true, updatedAt: true },
+    });
+  }
+
   async deleteSession(sessionId: string, userId: string) {
     const session = await this.prisma.session.findFirst({ where: { id: sessionId, userId } });
     if (!session) {

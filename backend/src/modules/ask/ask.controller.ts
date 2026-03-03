@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Delete, Param, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { AskService } from './ask.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -21,6 +21,16 @@ export class AskController {
   @Get('sessions/:id/messages')
   async getMessages(@Param('id') id: string, @CurrentUser() userId: string) {
     return this.askService.getMessages(id, userId);
+  }
+
+  @Patch('sessions/:id')
+  async renameSession(
+    @Param('id') id: string,
+    @Body('title') title: string,
+    @CurrentUser() userId: string,
+  ) {
+    if (!title?.trim()) throw new BadRequestException('Title is required');
+    return this.askService.renameSession(id, userId, title);
   }
 
   @Delete('sessions/:id')

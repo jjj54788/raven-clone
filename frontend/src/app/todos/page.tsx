@@ -2,22 +2,27 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Bell,
+  Bot,
   CalendarDays,
   CheckCircle2,
   CheckSquare2,
   ChevronLeft,
   ChevronRight,
   Circle,
+  Clock,
   Download,
+  ListChecks,
   ListTodo,
   Pause,
   Pencil,
   Play,
   Plus,
   RefreshCw,
+  Repeat,
   Smile,
+  Sparkles,
   Square,
+  Timer,
   Trash2,
   Upload,
   X,
@@ -27,24 +32,29 @@ import TodoTaskDrawer from '@/components/TodoTaskDrawer';
 import { useAuth } from '@/hooks';
 import { useLanguage } from '@/i18n/LanguageContext';
 import {
+  batchTodoTasks,
+  createSubtask,
   createTodoList,
   createTodoTask,
+  decomposeTodo,
+  deleteSubtask,
   deleteTodoTask,
-  getUser,
+  getTodoSummary,
   listTodoLists,
   listTodoTasks,
+  postponeOverdueTasks,
+  rescheduleTasks,
+  updateSubtask,
   updateTodoTask,
+  type RepeatRule,
   type TodoList,
+  type TodoSummary,
   type TodoTask,
 } from '@/lib/api';
 
 type TaskFilter = 'open' | 'done' | 'all';
-type ReminderRepeat = 'DAILY' | 'WEEKLY' | 'MONTHLY';
-type SubTask = { id: string; title: string; done: boolean };
-type TaskMeta = { color?: string; reminderTime?: string; subTasks?: SubTask[] };
-
 const DEFAULT_FOCUS_MINUTES = 25;
-const FOCUS_MINUTES_KEY = 'raven_focus_minutes';
+const FOCUS_MINUTES_KEY = 'gewu_focus_minutes';
 const DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TASK_COLORS = ['#ef4444', '#f97316', '#facc15', '#22c55e', '#3b82f6', '#6366f1', '#8b5cf6', '#ec4899', '#9ca3af'];
 
@@ -228,52 +238,48 @@ function parseImportText(text: string, defaultDateKey: string) {
   return items;
 }
 
-function safeParseTaskMeta(value: string | null): Record<string, TaskMeta> {
-  if (!value) return {};
-  try {
-    const parsed = JSON.parse(value);
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
-    return parsed as Record<string, TaskMeta>;
-  } catch {
-    return {};
-  }
+function buildCsvExport(tasks: TodoTask[]): string {
+  const header = 'Title,Status,Priority,Due Date,Completed At,List\n';
+  const rows = tasks.map((t) => {
+    const cols = [
+      `"${t.title.replace(/"/g, '""')}"`,
+      t.status,
+      String(t.priority),
+      t.dueAt ? isoToDateKey(t.dueAt) : '',
+      t.completedAt ? isoToDateKey(t.completedAt) : '',
+      `"${t.list?.name || ''}"`,
+    ];
+    return cols.join(',');
+  });
+  return header + rows.join('\n') + '\n';
 }
 
-function formatReminderRemaining(dateKey: string, time: string, now: number, locale: 'en' | 'zh'): string {
-  if (!DATE_KEY_RE.test(dateKey) || !time) return '';
-  const [hh, mm] = time.split(':').map((x) => Number(x));
-  const { y, m, d } = parseDateKey(dateKey);
-  const target = new Date(y, m - 1, d, hh || 0, mm || 0, 0, 0).getTime();
-  const diff = target - now;
-  if (diff <= 0) return locale === 'zh' ? '已到时间' : 'Due';
-  const totalSeconds = Math.floor(diff / 1000);
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  if (locale === 'zh') {
-    const hourPart = hours > 0 ? `${hours}小时` : '';
-    const minutePart = minutes > 0 ? `${minutes}分钟` : '';
-    const secondPart = hours === 0 && minutes === 0 ? `${seconds}秒` : '';
-    return `剩余${hourPart}${minutePart}${secondPart}` || '剩余';
+function buildTextExport(tasks: TodoTask[], title: string): string {
+  const groups: Record<string, TodoTask[]> = {};
+  for (const task of tasks) {
+    const dueKey = task.dueAt ? isoToDateKey(task.dueAt) : '';
+    const key = DATE_KEY_RE.test(dueKey) ? dueKey : 'no-date';
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(task);
   }
-  const hourPart = hours > 0 ? `${hours}h ` : '';
-  const minutePart = minutes > 0 ? `${minutes}m ` : '';
-  const secondPart = hours === 0 && minutes === 0 ? `${seconds}s ` : '';
-  return `${hourPart}${minutePart}${secondPart}left`.trim();
-}
-
-function createSubtaskId(): string {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-    return crypto.randomUUID();
+  const keys = Object.keys(groups).sort();
+  const lines: string[] = [`=== ${title} ===`, ''];
+  for (const key of keys) {
+    lines.push(`--- ${key} ---`);
+    for (const task of groups[key]) {
+      const mark = task.status === 'DONE' ? '[x]' : '[ ]';
+      lines.push(`  ${mark} ${task.title}`);
+    }
+    lines.push('');
   }
-  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return lines.join('\n').trim() + '\n';
 }
 
 function MonthOverview({
   open,
   inline = false,
   month,
-  counts,
+  taskMap,
   locale,
   selectedDateKey,
   todayKey,
@@ -288,7 +294,7 @@ function MonthOverview({
   open: boolean;
   inline?: boolean;
   month: Date;
-  counts: Record<string, number>;
+  taskMap: Record<string, Array<{ id: string; title: string; status: string; color: string | null }>>;
   locale: 'en' | 'zh';
   selectedDateKey: string;
   todayKey: string;
@@ -331,7 +337,8 @@ function MonthOverview({
             <tr key={`row-${rowIndex}`}>
               {row.map((cell, colIndex) => {
                 const key = cell ? cell.key : `empty-${rowIndex}-${colIndex}`;
-                const count = cell ? counts[cell.key] || 0 : 0;
+                const dayTasks = cell ? (taskMap[cell.key] || []) : [];
+                const count = dayTasks.length;
                 const isSelected = cell ? cell.key === selectedDateKey : false;
                 const isToday = cell ? cell.key === todayKey : false;
                 const dayClass = isToday
@@ -339,6 +346,8 @@ function MonthOverview({
                   : isSelected
                     ? 'text-emerald-700 text-sm font-semibold'
                     : 'text-gray-900 text-sm font-semibold';
+                const visibleTasks = dayTasks.slice(0, 2);
+                const extraCount = dayTasks.length - visibleTasks.length;
                 return (
                   <td key={key} className="h-16 align-top border border-gray-200 p-0 sm:h-20">
                     {cell ? (
@@ -346,19 +355,32 @@ function MonthOverview({
                         type="button"
                         onClick={() => onSelectDate(cell.key)}
                         className={[
-                          'relative flex h-full w-full flex-col gap-1 px-2 py-1 text-left text-xs transition-colors',
+                          'relative flex h-full w-full flex-col gap-0.5 px-1.5 py-1 text-left text-xs transition-colors',
                           isSelected ? 'bg-emerald-50' : 'bg-white hover:bg-gray-50',
                         ].join(' ')}
                       >
                         <div className="flex w-full items-center justify-between">
                           <span className={dayClass}>{cell.day}</span>
                           {count > 0 && (
-                            <span className="text-[11px] font-semibold text-gray-500">
+                            <span className="inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-purple-100 px-1 text-[10px] font-bold text-purple-700">
                               {count > 99 ? '99+' : count}
                             </span>
                           )}
                         </div>
-                        {count > 0 && <span className="mt-1 h-1 w-6 rounded-full bg-rose-500/70" />}
+                        {visibleTasks.map((task) => (
+                          <div key={task.id} className="flex w-full items-center gap-0.5 overflow-hidden" title={task.title}>
+                            <span
+                              className="h-1.5 w-1.5 shrink-0 rounded-full"
+                              style={{ backgroundColor: task.color || (task.status === 'DONE' ? '#9ca3af' : '#818cf8') }}
+                            />
+                            <span className="min-w-0 truncate text-[9px] leading-tight text-gray-600">
+                              {task.title}
+                            </span>
+                          </div>
+                        ))}
+                        {extraCount > 0 && (
+                          <span className="text-[9px] leading-tight text-gray-400">+{extraCount}</span>
+                        )}
                       </button>
                     ) : (
                       <div className="h-full w-full bg-gray-50" />
@@ -473,15 +495,15 @@ export default function TodosPage() {
   const [quickDone, setQuickDone] = useState(false);
   const [quickExpanded, setQuickExpanded] = useState(false);
 
-  const [reminderOpen, setReminderOpen] = useState(false);
-  const [reminderTitle, setReminderTitle] = useState('');
-  const [reminderRepeat, setReminderRepeat] = useState<ReminderRepeat>('DAILY');
-  const [reminderTime, setReminderTime] = useState('18:00');
-  const [reminderError, setReminderError] = useState<string | null>(null);
+  // AI Decompose
+  const [decomposeOpen, setDecomposeOpen] = useState(false);
+  const [decomposeGoal, setDecomposeGoal] = useState('');
+  const [decomposeLoading, setDecomposeLoading] = useState(false);
+  const [decomposeError, setDecomposeError] = useState<string | null>(null);
 
   const [showMonth, setShowMonth] = useState(true);
   const [monthCursor, setMonthCursor] = useState<Date>(() => startOfMonth(new Date()));
-  const [monthCounts, setMonthCounts] = useState<Record<string, number>>({});
+  const [monthTaskMap, setMonthTaskMap] = useState<Record<string, Array<{ id: string; title: string; status: string; color: string | null }>>>({});
   const [monthLoading, setMonthLoading] = useState(false);
 
   const [newTitle, setNewTitle] = useState('');
@@ -489,12 +511,33 @@ export default function TodosPage() {
   const [newPriority, setNewPriority] = useState(0);
   const [submitting, setSubmitting] = useState(false);
 
-  const [taskMeta, setTaskMeta] = useState<Record<string, TaskMeta>>({});
-  const [subtaskOpen, setSubtaskOpen] = useState<Record<string, boolean>>({});
-  const [subtaskDrafts, setSubtaskDrafts] = useState<Record<string, string>>({});
-  const [reminderOpenId, setReminderOpenId] = useState<string | null>(null);
-  const [reminderDraft, setReminderDraft] = useState('20:00');
-  const [nowTick, setNowTick] = useState(() => Date.now());
+  // Batch selection
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [batchBusy, setBatchBusy] = useState(false);
+
+  // Inline subtask add in task list
+  const [subtaskOpenId, setSubtaskOpenId] = useState<string | null>(null);
+  const [subtaskDraft, setSubtaskDraft] = useState('');
+
+  // Repeat rule for quick-add
+  const [newRepeatRule, setNewRepeatRule] = useState<RepeatRule>('NONE');
+
+  // Postpone banner
+  const [postponedCount, setPostponedCount] = useState(0);
+
+  // AI Summary
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [summaryData, setSummaryData] = useState<TodoSummary | null>(null);
+
+  // Countdown timer
+  const COUNTDOWN_KEY = 'gewu_countdown_config';
+  const [countdownOpen, setCountdownOpen] = useState(false);
+  const [countdownName, setCountdownName] = useState('');
+  const [countdownMinutes, setCountdownMinutes] = useState(5);
+  const [countdownRemaining, setCountdownRemaining] = useState<number | null>(null);
+  const [countdownRunning, setCountdownRunning] = useState(false);
 
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState('');
@@ -508,18 +551,17 @@ export default function TodosPage() {
   const [focusMinutes, setFocusMinutes] = useState(DEFAULT_FOCUS_MINUTES);
   const [focusRemaining, setFocusRemaining] = useState<number | null>(null);
   const [focusRunning, setFocusRunning] = useState(false);
+  const [focusTaskId, setFocusTaskId] = useState<string | null>(null);
+
+  // AI Focus / Reschedule
+  const [aiFocusOpen, setAiFocusOpen] = useState(false);
+  const [aiFocusLoading, setAiFocusLoading] = useState(false);
+  const [aiFocusOrdered, setAiFocusOrdered] = useState<Array<{ task: TodoTask; reason: string }>>([]);
 
   const quickInputRef = useRef<HTMLInputElement | null>(null);
-  const reminderRef = useRef<HTMLDivElement | null>(null);
   const exportRef = useRef<HTMLDivElement | null>(null);
   const importFileRef = useRef<HTMLInputElement | null>(null);
-  const reminderPopoverRef = useRef<HTMLDivElement | null>(null);
-
-  const metaKey = useMemo(() => {
-    const user = getUser();
-    const key = String(user?.id || user?.email || userName || 'user').toLowerCase();
-    return `raven_todo_meta:${key}`;
-  }, [userName]);
+  const countdownRef = useRef<HTMLDivElement | null>(null);
 
   const selectedListName = useMemo(() => {
     if (selectedListId === 'all') return t('todos.allLists');
@@ -542,6 +584,21 @@ export default function TodosPage() {
     }
     return counts;
   }, [tasks]);
+
+  // Merge monthTaskMap with current week tasks so calendar always reflects loaded data
+  const mergedMonthTaskMap = useMemo(() => {
+    const merged = { ...monthTaskMap };
+    for (const task of tasks) {
+      if (!task.dueAt) continue;
+      const k = isoToDateKey(task.dueAt);
+      if (!k) continue;
+      if (!merged[k]) merged[k] = [];
+      if (!merged[k].some((t) => t.id === task.id)) {
+        merged[k].push({ id: task.id, title: task.title, status: task.status, color: task.color ?? null });
+      }
+    }
+    return merged;
+  }, [monthTaskMap, tasks]);
 
   const focusLabel = useMemo(() => {
     if (focusRemaining == null) return t('todos.focusStart');
@@ -604,16 +661,17 @@ export default function TodosPage() {
         dueBefore: dateKeyToUtcEndIso(toLocalDateKey(monthEnd)),
       });
       if ((data as any)?.statusCode) throw new Error(formatApiError(data));
-      const counts: Record<string, number> = {};
+      const taskMap: Record<string, Array<{ id: string; title: string; status: string; color: string | null }>> = {};
       for (const task of data) {
         if (!task.dueAt) continue;
         const k = isoToDateKey(task.dueAt);
         if (!k) continue;
-        counts[k] = (counts[k] || 0) + 1;
+        if (!taskMap[k]) taskMap[k] = [];
+        taskMap[k].push({ id: task.id, title: task.title, status: task.status, color: task.color ?? null });
       }
-      setMonthCounts(counts);
+      setMonthTaskMap(taskMap);
     } catch {
-      setMonthCounts({});
+      setMonthTaskMap({});
     } finally {
       setMonthLoading(false);
     }
@@ -647,9 +705,13 @@ export default function TodosPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authReady, selectedListId, filter, weekStartKey]);
 
+  // Auto-postpone overdue tasks on first load
   useEffect(() => {
-    setTaskMeta(safeParseTaskMeta(localStorage.getItem(metaKey)));
-  }, [metaKey]);
+    if (!authReady) return;
+    postponeOverdueTasks().then((r) => {
+      if (r?.affected > 0) setPostponedCount(r.affected);
+    }).catch(() => {});
+  }, [authReady]);
 
   useEffect(() => {
     try {
@@ -661,6 +723,17 @@ export default function TodosPage() {
     } catch {
       // ignore
     }
+  }, []);
+
+  // Load countdown config from localStorage
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(COUNTDOWN_KEY);
+      if (!stored) return;
+      const parsed = JSON.parse(stored);
+      if (parsed?.name) setCountdownName(parsed.name);
+      if (parsed?.minutes > 0) setCountdownMinutes(parsed.minutes);
+    } catch {}
   }, []);
 
   useEffect(() => {
@@ -678,37 +751,27 @@ export default function TodosPage() {
     return () => window.clearInterval(timer);
   }, [focusRunning]);
 
+  // Countdown timer tick
   useEffect(() => {
+    if (!countdownRunning) return;
     const timer = window.setInterval(() => {
-      setNowTick(Date.now());
+      setCountdownRemaining((prev) => {
+        if (prev == null) return prev;
+        if (prev <= 1) {
+          setCountdownRunning(false);
+          try { new Notification(countdownName || 'Countdown', { body: 'Time\'s up!' }); } catch {}
+          return 0;
+        }
+        return prev - 1;
+      });
     }, 1000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [countdownRunning, countdownName]);
 
   useEffect(() => {
     if (!quickAddOpen) return;
     quickInputRef.current?.focus();
   }, [quickAddOpen, selectedDateKey]);
-
-  useEffect(() => {
-    if (!reminderOpen) return;
-    setReminderError(null);
-    const onClick = (e: MouseEvent) => {
-      if (!reminderRef.current) return;
-      if (!reminderRef.current.contains(e.target as Node)) {
-        setReminderOpen(false);
-      }
-    };
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setReminderOpen(false);
-    };
-    document.addEventListener('mousedown', onClick);
-    window.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', onClick);
-      window.removeEventListener('keydown', onKeyDown);
-    };
-  }, [reminderOpen]);
 
   useEffect(() => {
     if (!showMonth) return;
@@ -736,23 +799,16 @@ export default function TodosPage() {
   }, [exportOpen]);
 
   useEffect(() => {
-    if (!reminderOpenId) return;
+    if (!countdownOpen) return;
     const onClick = (e: MouseEvent) => {
-      if (!reminderPopoverRef.current) return;
-      if (!reminderPopoverRef.current.contains(e.target as Node)) {
-        setReminderOpenId(null);
-      }
+      if (!countdownRef.current) return;
+      if (!countdownRef.current.contains(e.target as Node)) setCountdownOpen(false);
     };
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setReminderOpenId(null);
-    };
+    const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') setCountdownOpen(false); };
     document.addEventListener('mousedown', onClick);
     window.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', onClick);
-      window.removeEventListener('keydown', onKeyDown);
-    };
-  }, [reminderOpenId]);
+    return () => { document.removeEventListener('mousedown', onClick); window.removeEventListener('keydown', onKeyDown); };
+  }, [countdownOpen]);
 
   useEffect(() => {
     if (!importOpen) return;
@@ -769,21 +825,6 @@ export default function TodosPage() {
     setFocusRunning(true);
   };
 
-  const handleReminderStart = () => {
-    if (!reminderTitle.trim()) {
-      setReminderError(t('todos.reminderRequired'));
-      return;
-    }
-    setReminderError(null);
-    setReminderOpen(false);
-  };
-
-  const handleReminderStop = () => {
-    setReminderTitle('');
-    setReminderError(null);
-    setReminderOpen(false);
-  };
-
   const handleQuickAddCancel = () => {
     setQuickAddOpen(false);
     setQuickExpanded(false);
@@ -791,6 +832,39 @@ export default function TodosPage() {
     setNewTitle('');
     setNewDescription('');
     setNewPriority(0);
+  };
+
+  const handleAiFocus = async () => {
+    setAiFocusLoading(true);
+    setAiFocusOpen(true);
+    setAiFocusOrdered([]);
+    try {
+      const result = await rescheduleTasks();
+      setAiFocusOrdered(result.ordered || []);
+    } catch {
+      setAiFocusOpen(false);
+    } finally {
+      setAiFocusLoading(false);
+    }
+  };
+
+  const handleDecompose = async () => {
+    const goal = decomposeGoal.trim();
+    if (!goal || decomposeLoading) return;
+    setDecomposeLoading(true);
+    setDecomposeError(null);
+    try {
+      const listId = selectedListId !== 'all' ? selectedListId : undefined;
+      const result = await decomposeTodo({ goal, listId });
+      if ((result as any)?.statusCode) throw new Error(formatApiError(result));
+      setTasks((prev) => [...result.tasks, ...prev]);
+      setDecomposeOpen(false);
+      setDecomposeGoal('');
+    } catch (e: any) {
+      setDecomposeError(e?.message || 'AI decompose failed');
+    } finally {
+      setDecomposeLoading(false);
+    }
   };
 
   const handlePrevWeek = () => {
@@ -801,37 +875,66 @@ export default function TodosPage() {
     setSelectedDateKey(toLocalDateKey(addDays(selectedDate, 7)));
   };
 
-  const persistTaskMeta = (next: Record<string, TaskMeta>) => {
+  const handleAddSubtaskInline = async (taskId: string) => {
+    const text = subtaskDraft.trim();
+    if (!text) return;
     try {
-      localStorage.setItem(metaKey, JSON.stringify(next));
-    } catch {
-      // ignore
+      const sub = await createSubtask(taskId, { title: text });
+      setSubtaskDraft('');
+      setSubtaskOpenId(null);
+      setTasks((prev) => prev.map((t) => t.id === taskId ? { ...t, subtasks: [...(t.subtasks || []), sub] } : t));
+    } catch {}
+  };
+
+  const handleToggleSubtaskInline = async (taskId: string, subId: string, currentDone: boolean) => {
+    try {
+      await updateSubtask(subId, { done: !currentDone });
+      setTasks((prev) => prev.map((t) => t.id === taskId ? { ...t, subtasks: (t.subtasks || []).map((s) => s.id === subId ? { ...s, done: !currentDone } : s) } : t));
+    } catch {}
+  };
+
+  const handleBatchAction = async (action: 'done' | 'todo' | 'delete') => {
+    if (selectedIds.size === 0) return;
+    setBatchBusy(true);
+    try {
+      await batchTodoTasks({ ids: Array.from(selectedIds), action });
+      setSelectedIds(new Set());
+      setSelectMode(false);
+      await loadTasks();
+      await refreshMonthCounts();
+    } catch (e: any) {
+      setError(e?.message || 'Batch operation failed');
+    } finally {
+      setBatchBusy(false);
     }
-    return next;
   };
 
-  const updateTaskMeta = (taskId: string, updater: (prev: TaskMeta) => TaskMeta) => {
-    setTaskMeta((prev) => persistTaskMeta({ ...prev, [taskId]: updater(prev[taskId] || {}) }));
+  const handleLoadSummary = async (mode: 'week' | 'month') => {
+    setSummaryLoading(true);
+    setSummaryData(null);
+    try {
+      const from = mode === 'week' ? weekStartKey : toLocalDateKey(startOfMonth(selectedDate));
+      const toDate = mode === 'week' ? toLocalDateKey(addDays(weekStart, 6)) : toLocalDateKey(new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0));
+      const data = await getTodoSummary(from, toDate);
+      setSummaryData(data);
+    } catch (e: any) {
+      setSummaryData({ summary: e?.message || 'Failed', stats: { total: 0, completed: 0, overdue: 0, completionRate: 0 } });
+    } finally {
+      setSummaryLoading(false);
+    }
   };
 
-  const removeTaskMeta = (taskId: string) => {
-    setTaskMeta((prev) => {
-      if (!prev[taskId]) return prev;
-      const next = { ...prev };
-      delete next[taskId];
-      return persistTaskMeta(next);
-    });
-  };
-
-  const handleAddSubtask = (taskId: string) => {
-    const draft = (subtaskDrafts[taskId] || '').trim();
-    if (!draft) return;
-    updateTaskMeta(taskId, (prev) => ({
-      ...prev,
-      subTasks: [...(prev.subTasks || []), { id: createSubtaskId(), title: draft, done: false }],
-    }));
-    setSubtaskDrafts((prev) => ({ ...prev, [taskId]: '' }));
-    setSubtaskOpen((prev) => ({ ...prev, [taskId]: false }));
+  const handleCountdownStart = () => {
+    if (countdownRunning) {
+      setCountdownRunning(false);
+      return;
+    }
+    setCountdownRemaining((prev) => (prev && prev > 0 ? prev : countdownMinutes * 60));
+    setCountdownRunning(true);
+    try { localStorage.setItem(COUNTDOWN_KEY, JSON.stringify({ name: countdownName, minutes: countdownMinutes })); } catch {}
+    if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => {});
+    }
   };
 
   const handleExportWeek = () => {
@@ -947,6 +1050,7 @@ export default function TodosPage() {
         listId: selectedListId === 'all' ? undefined : selectedListId,
         priority: newPriority || undefined,
         dueAt,
+        repeatRule: newRepeatRule !== 'NONE' ? newRepeatRule : undefined,
       });
       if ((data as any)?.statusCode) throw new Error(formatApiError(data));
 
@@ -965,6 +1069,7 @@ export default function TodosPage() {
       setNewDescription('');
       setQuickDone(false);
       setNewPriority(0);
+      setNewRepeatRule('NONE');
 
       setTasks((prev) => [data, ...prev].slice(0, 50));
       await refreshMonthCounts();
@@ -997,7 +1102,6 @@ export default function TodosPage() {
       const data = await deleteTodoTask(task.id);
       if ((data as any)?.statusCode) throw new Error(formatApiError(data));
       if (selectedTask?.id === task.id) setSelectedTask(null);
-      removeTaskMeta(task.id);
       await refreshMonthCounts();
     } catch (e: any) {
       setTasks(prev);
@@ -1077,21 +1181,16 @@ export default function TodosPage() {
                   {t('todos.export')}
                 </button>
                 {exportOpen && (
-                  <div className="absolute right-0 top-full z-20 mt-2 w-44 rounded-xl border border-gray-200 bg-white p-2 shadow-lg">
-                    <button
-                      type="button"
-                      onClick={handleExportWeek}
-                      className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                    >
-                      {t('todos.exportWeek')}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleExportMonth}
-                      className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                    >
-                      {t('todos.exportMonth')}
-                    </button>
+                  <div className="absolute right-0 top-full z-20 mt-2 w-52 rounded-xl border border-gray-200 bg-white p-2 shadow-lg">
+                    <p className="mb-1 px-3 text-[10px] font-semibold uppercase text-gray-400">Markdown</p>
+                    <button type="button" onClick={handleExportWeek} className="flex w-full items-center rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">{t('todos.exportWeek')}</button>
+                    <button type="button" onClick={handleExportMonth} className="flex w-full items-center rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">{t('todos.exportMonth')}</button>
+                    <div className="my-1 border-t border-gray-100" />
+                    <p className="mb-1 px-3 text-[10px] font-semibold uppercase text-gray-400">CSV</p>
+                    <button type="button" onClick={() => { const csv = buildCsvExport(tasks); downloadTextFile(csv, `todos-week-${weekStartKey}.csv`, 'text/csv'); setExportOpen(false); }} className="flex w-full items-center rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">{t('todos.exportCsv')}</button>
+                    <div className="my-1 border-t border-gray-100" />
+                    <p className="mb-1 px-3 text-[10px] font-semibold uppercase text-gray-400">Text</p>
+                    <button type="button" onClick={() => { const txt = buildTextExport(tasks, selectedListName); downloadTextFile(txt, `todos-week-${weekStartKey}.txt`); setExportOpen(false); }} className="flex w-full items-center rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">{t('todos.exportText')}</button>
                   </div>
                 )}
               </div>
@@ -1103,11 +1202,45 @@ export default function TodosPage() {
               >
                 <RefreshCw size={16} />
               </button>
+              <button
+                type="button"
+                onClick={() => { setSelectMode((prev) => !prev); setSelectedIds(new Set()); }}
+                className={['inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm', selectMode ? 'border-purple-200 bg-purple-50 text-purple-700' : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'].join(' ')}
+                title={t('todos.selectMode')}
+              >
+                <ListChecks size={16} />
+              </button>
+              <button
+                type="button"
+                onClick={() => { setSummaryOpen(true); handleLoadSummary('week'); }}
+                className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                title={t('todos.aiSummary')}
+              >
+                <Bot size={16} />
+              </button>
             </div>
           </div>
         </div>
 
         <div className="mx-auto w-full max-w-6xl px-6 py-5 sm:px-8">
+          {postponedCount > 0 && (
+            <div className="mb-4 flex items-center justify-between rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+              <span>{t('todos.postponed').replace('{count}', String(postponedCount))}</span>
+              <button type="button" onClick={() => setPostponedCount(0)} className="text-amber-500 hover:text-amber-700"><X size={14} /></button>
+            </div>
+          )}
+
+          {selectMode && selectedIds.size > 0 && (
+            <div className="mb-4 flex items-center gap-2 rounded-xl border border-purple-100 bg-purple-50 px-4 py-3">
+              <span className="text-sm font-medium text-purple-700">{selectedIds.size} {t('todos.selected')}</span>
+              <div className="ml-auto flex items-center gap-2">
+                <button type="button" onClick={() => handleBatchAction('done')} disabled={batchBusy} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">{t('todos.batchDone')}</button>
+                <button type="button" onClick={() => handleBatchAction('todo')} disabled={batchBusy} className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50">{t('todos.batchTodo')}</button>
+                <button type="button" onClick={() => { if (window.confirm(t('todos.batchDeleteConfirm'))) handleBatchAction('delete'); }} disabled={batchBusy} className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-50">{t('todos.batchDelete')}</button>
+              </div>
+            </div>
+          )}
+
           {error && (
             <div className="mb-4 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
               {error}
@@ -1157,7 +1290,7 @@ export default function TodosPage() {
                   open={showMonth}
                   inline
                   month={monthCursor}
-                  counts={monthCounts}
+                  taskMap={mergedMonthTaskMap}
                   locale={locale}
                   selectedDateKey={selectedDateKey}
                   todayKey={todayKey}
@@ -1232,6 +1365,23 @@ export default function TodosPage() {
                     </div>
                   </div>
 
+                  {/* Pomodoro task selector */}
+                  {tasks.filter((t) => t.status !== 'DONE' && t.status !== 'ARCHIVED').length > 0 && (
+                    <div className="mt-3 flex items-center gap-2">
+                      <span className="text-xs text-gray-400">专注任务：</span>
+                      <select
+                        value={focusTaskId || ''}
+                        onChange={(e) => setFocusTaskId(e.target.value || null)}
+                        className="h-7 flex-1 rounded-lg border border-gray-200 bg-white px-2 text-xs text-gray-700 focus:border-purple-300 focus:outline-none"
+                      >
+                        <option value="">— 未选择 —</option>
+                        {tasks.filter((t) => t.status !== 'DONE' && t.status !== 'ARCHIVED').slice(0, 20).map((t) => (
+                          <option key={t.id} value={t.id}>{t.title}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
                   <div className="mt-4 flex flex-wrap items-center gap-3">
                     <button
                       type="button"
@@ -1246,99 +1396,101 @@ export default function TodosPage() {
                     >
                       {focusRunning ? <Pause size={16} /> : <Play size={16} />}
                       {focusLabel}
+                      {focusRunning && focusTaskId && (() => {
+                        const ft = tasks.find((t) => t.id === focusTaskId);
+                        return ft ? <span className="max-w-[100px] truncate text-xs font-normal opacity-75">· {ft.title}</span> : null;
+                      })()}
                     </button>
 
-                    <div ref={reminderRef} className="relative">
+                    {/* AI Focus button */}
+                    <button
+                      type="button"
+                      onClick={handleAiFocus}
+                      disabled={aiFocusLoading}
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-purple-200 px-3 py-2 text-sm font-semibold text-purple-600 hover:bg-purple-50 disabled:opacity-60"
+                      title="AI 智能排序今日任务"
+                    >
+                      {aiFocusLoading ? <RefreshCw size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                      AI 专注
+                    </button>
+
+                    {/* Countdown Timer */}
+                    <div ref={countdownRef} className="relative">
                       <button
                         type="button"
-                        onClick={() => setReminderOpen((prev) => !prev)}
-                        className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
-                        title={t('todos.reminderAdd')}
+                        onClick={() => {
+                          if (countdownRunning) { handleCountdownStart(); return; }
+                          setCountdownOpen((prev) => !prev);
+                        }}
+                        className={['inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-colors', countdownRunning ? 'bg-amber-500 text-white' : 'border border-gray-200 bg-white text-gray-700 hover:bg-gray-50'].join(' ')}
+                        title={t('todos.countdownTimer')}
                       >
-                        <Bell size={16} />
-                        {t('todos.reminderAdd')}
+                        {countdownRunning ? <Pause size={16} /> : <Timer size={16} />}
+                        {countdownRemaining != null && countdownRemaining > 0 ? formatCountdown(countdownRemaining) : t('todos.countdownTimer')}
                       </button>
-
-                      {reminderOpen && (
-                        <div className="absolute right-0 top-full z-20 mt-2 w-72 rounded-xl border border-gray-200 bg-white p-3 shadow-lg">
+                      {countdownOpen && !countdownRunning && (
+                        <div className="absolute right-0 top-full z-20 mt-2 w-64 rounded-xl border border-gray-200 bg-white p-3 shadow-lg">
                           <div className="space-y-2">
                             <div>
-                              <label className="mb-1 block text-xs font-semibold text-gray-500">
-                                {t('todos.reminderItem')}
-                              </label>
-                              <input
-                                value={reminderTitle}
-                                onChange={(e) => {
-                                  setReminderTitle(e.target.value);
-                                  if (reminderError) setReminderError(null);
-                                }}
-                                placeholder={t('todos.reminderPlaceholder')}
-                                className="h-9 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-700 focus:border-purple-300 focus:outline-none focus:ring-2 focus:ring-purple-100"
-                              />
+                              <label className="mb-1 block text-xs font-semibold text-gray-500">{t('todos.countdownName')}</label>
+                              <input value={countdownName} onChange={(e) => setCountdownName(e.target.value)} placeholder={t('todos.countdownNamePlaceholder')} className="h-9 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-700 focus:border-purple-300 focus:outline-none" />
                             </div>
-
                             <div>
-                              <label className="mb-1 block text-xs font-semibold text-gray-500">
-                                {t('todos.reminderRepeat')}
-                              </label>
+                              <label className="mb-1 block text-xs font-semibold text-gray-500">{t('todos.countdownMinutes')}</label>
                               <div className="flex items-center gap-2">
-                                {(['DAILY', 'WEEKLY', 'MONTHLY'] as ReminderRepeat[]).map((opt) => (
-                                  <button
-                                    key={opt}
-                                    type="button"
-                                    onClick={() => setReminderRepeat(opt)}
-                                    className={[
-                                      'flex-1 rounded-lg border px-2 py-1 text-xs font-semibold transition-colors',
-                                      reminderRepeat === opt
-                                        ? 'border-purple-200 bg-purple-50 text-purple-700'
-                                        : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50',
-                                    ].join(' ')}
-                                  >
-                                    {opt === 'DAILY'
-                                      ? t('todos.reminderDaily')
-                                      : opt === 'WEEKLY'
-                                        ? t('todos.reminderWeekly')
-                                        : t('todos.reminderMonthly')}
-                                  </button>
+                                {[5, 10, 15, 30, 60].map((m) => (
+                                  <button key={m} type="button" onClick={() => setCountdownMinutes(m)} className={['flex-1 rounded-lg border px-2 py-1 text-xs font-semibold', countdownMinutes === m ? 'border-amber-300 bg-amber-50 text-amber-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50'].join(' ')}>{m}</button>
                                 ))}
                               </div>
                             </div>
-
-                            <div>
-                              <label className="mb-1 block text-xs font-semibold text-gray-500">
-                                {t('todos.reminderTime')}
-                              </label>
-                              <input
-                                type="time"
-                                value={reminderTime}
-                                onChange={(e) => setReminderTime(e.target.value)}
-                                className="h-9 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-700 focus:border-purple-300 focus:outline-none focus:ring-2 focus:ring-purple-100"
-                              />
-                            </div>
-
-                            {reminderError && <p className="text-xs text-red-600">{reminderError}</p>}
-
-                            <div className="flex items-center gap-2 pt-1">
-                              <button
-                                type="button"
-                                onClick={handleReminderStart}
-                                className="flex-1 rounded-lg bg-purple-600 px-3 py-2 text-xs font-semibold text-white hover:bg-purple-700"
-                              >
-                                {t('todos.reminderStart')}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={handleReminderStop}
-                                className="flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50"
-                              >
-                                {t('todos.reminderStop')}
-                              </button>
-                            </div>
+                            <button type="button" onClick={handleCountdownStart} className="w-full rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-white hover:bg-amber-600">{t('todos.countdownStart')}</button>
                           </div>
                         </div>
                       )}
                     </div>
                   </div>
+
+                  {/* AI Focus panel */}
+                  {aiFocusOpen && (
+                    <div className="mt-3 rounded-xl border border-purple-100 bg-purple-50 p-3">
+                      <div className="mb-2 flex items-center justify-between">
+                        <span className="flex items-center gap-1.5 text-sm font-semibold text-purple-700">
+                          <Sparkles size={13} />AI 智能专注顺序
+                        </span>
+                        <button type="button" onClick={() => setAiFocusOpen(false)} className="text-purple-400 hover:text-purple-600"><X size={13} /></button>
+                      </div>
+                      {aiFocusLoading ? (
+                        <p className="py-2 text-center text-xs text-purple-500"><RefreshCw size={12} className="inline animate-spin" /> AI 分析中…</p>
+                      ) : aiFocusOrdered.length === 0 ? (
+                        <p className="text-xs text-gray-500">暂无开放任务可排序</p>
+                      ) : (
+                        <ol className="space-y-1.5">
+                          {aiFocusOrdered.map(({ task, reason }, idx) => (
+                            <li key={task.id} className="flex items-start gap-2">
+                              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-purple-600 text-[11px] font-bold text-white">{idx + 1}</span>
+                              <div className="min-w-0 flex-1">
+                                <button
+                                  type="button"
+                                  onClick={() => { setFocusTaskId(task.id); setAiFocusOpen(false); setSelectedTask(task); }}
+                                  className="text-left text-sm font-medium text-gray-900 hover:text-purple-700"
+                                >
+                                  {task.title}
+                                </button>
+                                {reason && <p className="text-xs text-gray-500">{reason}</p>}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => { setFocusTaskId(task.id); setFocusRemaining(focusMinutes * 60); setFocusRunning(true); setAiFocusOpen(false); }}
+                                className="shrink-0 rounded-lg bg-purple-600 px-2 py-1 text-xs text-white hover:bg-purple-700"
+                              >
+                                <Play size={10} className="inline" /> 专注
+                              </button>
+                            </li>
+                          ))}
+                        </ol>
+                      )}
+                    </div>
+                  )}
 
                   <div className="mt-3 flex items-center gap-2">
                     <button
@@ -1463,6 +1615,22 @@ export default function TodosPage() {
                                 <option value={3}>{t('todos.priorityHigh')}</option>
                               </select>
                             </div>
+                            <div className="sm:col-span-6">
+                              <label className="mb-1 flex items-center gap-1 text-xs font-semibold text-gray-500">
+                                <Repeat size={12} />
+                                {t('todos.repeatLabel')}
+                              </label>
+                              <select
+                                value={newRepeatRule}
+                                onChange={(e) => setNewRepeatRule(e.target.value as RepeatRule)}
+                                className="h-9 w-full rounded-lg border border-gray-200 bg-white px-2 text-xs text-gray-700 focus:border-purple-300 focus:outline-none focus:ring-2 focus:ring-purple-100"
+                              >
+                                <option value="NONE">{t('todos.repeatNone')}</option>
+                                <option value="DAILY">{t('todos.repeatDaily')}</option>
+                                <option value="WEEKLY">{t('todos.repeatWeekly')}</option>
+                                <option value="MONTHLY">{t('todos.repeatMonthly')}</option>
+                              </select>
+                            </div>
                             <div className="sm:col-span-12">
                               <label className="mb-1 block text-xs font-semibold text-gray-500">
                                 {t('todos.fieldDescription')}
@@ -1479,14 +1647,66 @@ export default function TodosPage() {
                         )}
                       </form>
                     ) : (
-                      <button
-                        type="button"
-                        onClick={() => setQuickAddOpen(true)}
-                        className="flex h-12 w-full items-center justify-center rounded-lg border border-dashed border-gray-200 text-gray-400 hover:border-purple-200 hover:text-purple-600"
-                        title={t('todos.add')}
-                      >
-                        <Plus size={18} />
-                      </button>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setQuickAddOpen(true)}
+                          className="flex h-12 flex-1 items-center justify-center rounded-lg border border-dashed border-gray-200 text-gray-400 hover:border-purple-200 hover:text-purple-600"
+                          title={t('todos.add')}
+                        >
+                          <Plus size={18} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setDecomposeOpen(true); setDecomposeError(null); }}
+                          className="flex h-12 items-center gap-1.5 rounded-lg border border-dashed border-purple-200 px-3 text-sm text-purple-500 hover:border-purple-400 hover:bg-purple-50 hover:text-purple-700"
+                          title="AI 任务拆解"
+                        >
+                          <Sparkles size={15} />
+                          AI
+                        </button>
+                      </div>
+                    )}
+
+                    {/* AI Decompose Modal */}
+                    {decomposeOpen && (
+                      <div className="mt-3 rounded-xl border border-purple-100 bg-purple-50 p-3">
+                        <div className="mb-2 flex items-center justify-between">
+                          <span className="flex items-center gap-1.5 text-sm font-semibold text-purple-700">
+                            <Sparkles size={14} />
+                            AI 任务拆解
+                          </span>
+                          <button type="button" onClick={() => { setDecomposeOpen(false); setDecomposeGoal(''); setDecomposeError(null); }} className="text-purple-400 hover:text-purple-600">
+                            <X size={14} />
+                          </button>
+                        </div>
+                        <textarea
+                          value={decomposeGoal}
+                          onChange={(e) => setDecomposeGoal(e.target.value)}
+                          placeholder="描述你的目标或项目，AI 将自动拆解为可执行任务…"
+                          rows={3}
+                          className="w-full resize-none rounded-lg border border-purple-200 bg-white px-3 py-2 text-sm text-gray-700 placeholder:text-gray-400 focus:border-purple-400 focus:outline-none focus:ring-2 focus:ring-purple-100"
+                          autoFocus
+                          onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleDecompose(); }}
+                        />
+                        {decomposeError && (
+                          <p className="mt-1.5 text-xs text-red-600">{decomposeError}</p>
+                        )}
+                        <div className="mt-2 flex justify-end">
+                          <button
+                            type="button"
+                            onClick={handleDecompose}
+                            disabled={decomposeLoading || !decomposeGoal.trim()}
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-purple-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-purple-700 disabled:bg-purple-300"
+                          >
+                            {decomposeLoading ? (
+                              <><RefreshCw size={13} className="animate-spin" />拆解中…</>
+                            ) : (
+                              <><Sparkles size={13} />开始拆解</>
+                            )}
+                          </button>
+                        </div>
+                      </div>
                     )}
 
                     <div className="mt-3">
@@ -1500,20 +1720,22 @@ export default function TodosPage() {
                       ) : (
                         <ul className="space-y-2">
                           {visibleTasks.map((task) => {
-                            const meta = taskMeta[task.id] || {};
-                            const subTasks = meta.subTasks || [];
-                            const subDone = subTasks.filter((s) => s.done).length;
-                            const dateKey = task.dueAt ? isoToDateKey(task.dueAt) : selectedDateKey;
-                            const remainingLabel = meta.reminderTime
-                              ? formatReminderRemaining(dateKey, meta.reminderTime, nowTick, locale)
-                              : '';
+                            const subs = task.subtasks || [];
+                            const subDone = subs.filter((s) => s.done).length;
                             const showList = selectedListId === 'all';
+                            const isSelected = selectedIds.has(task.id);
                             return (
                               <li
                                 key={task.id}
                                 className="flex items-start gap-3 rounded-xl border border-transparent bg-white px-3 py-2 pl-2 shadow-sm transition-colors hover:border-gray-200"
-                                style={{ borderLeftWidth: 4, borderLeftColor: meta.color || 'transparent' }}
+                                style={{ borderLeftWidth: 4, borderLeftColor: task.color || 'transparent' }}
                               >
+                                {selectMode && (
+                                  <button type="button" onClick={() => setSelectedIds((prev) => { const next = new Set(prev); if (next.has(task.id)) next.delete(task.id); else next.add(task.id); return next; })} className="mt-0.5">
+                                    {isSelected ? <CheckSquare2 size={18} className="text-purple-600" /> : <Square size={18} className="text-gray-400" />}
+                                  </button>
+                                )}
+
                                 <button
                                   type="button"
                                   onClick={() => toggleDone(task)}
@@ -1536,109 +1758,23 @@ export default function TodosPage() {
                                       >
                                         {task.title}
                                       </button>
-                                      {remainingLabel && (
-                                        <p className="mt-0.5 text-xs text-emerald-600">{remainingLabel}</p>
-                                      )}
                                     </div>
                                     <div className="flex items-center gap-1">
-                                      <button
-                                        type="button"
-                                        onClick={() => setSubtaskOpen((prev) => ({ ...prev, [task.id]: !prev[task.id] }))}
-                                        className="rounded p-1 text-gray-300 hover:bg-gray-50 hover:text-purple-600"
-                                        title={t('todos.subtaskAdd')}
-                                      >
-                                        <Plus size={14} />
-                                      </button>
-                                      <div className="relative">
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            setReminderOpenId(task.id);
-                                            setReminderDraft(meta.reminderTime || '20:00');
-                                          }}
-                                          className={`rounded p-1 hover:bg-gray-50 ${
-                                            meta.reminderTime ? 'text-emerald-600' : 'text-gray-300'
-                                          }`}
-                                          title={t('todos.reminderAdd')}
-                                        >
-                                          <Bell size={14} />
-                                        </button>
-                                        {reminderOpenId === task.id && (
-                                          <div
-                                            ref={reminderPopoverRef}
-                                            className="absolute right-0 top-full z-20 mt-2 w-44 rounded-xl border border-gray-200 bg-white p-2 shadow-lg"
-                                          >
-                                            <label className="mb-1 block text-xs font-semibold text-gray-500">
-                                              {t('todos.reminderTime')}
-                                            </label>
-                                            <div className="flex items-center gap-2">
-                                              <input
-                                                type="time"
-                                                value={reminderDraft}
-                                                onChange={(e) => setReminderDraft(e.target.value)}
-                                                className="h-8 w-full rounded-lg border border-gray-200 bg-white px-2 text-xs text-gray-700 focus:border-purple-300 focus:outline-none focus:ring-2 focus:ring-purple-100"
-                                              />
-                                              <button
-                                                type="button"
-                                                onClick={() => {
-                                                  updateTaskMeta(task.id, (prev) => ({ ...prev, reminderTime: reminderDraft }));
-                                                  setReminderOpenId(null);
-                                                }}
-                                                className="rounded-lg bg-purple-600 px-2 py-1 text-xs font-semibold text-white hover:bg-purple-700"
-                                              >
-                                                {t('todos.reminderConfirm')}
-                                              </button>
-                                            </div>
-                                          </div>
-                                        )}
-                                      </div>
-                                      <button
-                                        type="button"
-                                        onClick={() => setSelectedTask(task)}
-                                        className="rounded p-1 text-gray-300 hover:bg-gray-50 hover:text-purple-600"
-                                        title={t('todos.detailsTitle')}
-                                      >
-                                        <Pencil size={14} />
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => removeTask(task)}
-                                        className="rounded p-1 text-gray-300 hover:bg-gray-50 hover:text-red-500"
-                                        title={t('todos.delete')}
-                                      >
-                                        <Trash2 size={16} />
-                                      </button>
+                                      <button type="button" onClick={() => { setSubtaskOpenId(subtaskOpenId === task.id ? null : task.id); setSubtaskDraft(''); }} className="rounded p-1 text-gray-300 hover:bg-gray-50 hover:text-purple-600" title={t('todos.subtaskAdd')}><Plus size={14} /></button>
+                                      <button type="button" onClick={() => setSelectedTask(task)} className="rounded p-1 text-gray-300 hover:bg-gray-50 hover:text-purple-600" title={t('todos.detailsTitle')}><Pencil size={14} /></button>
+                                      <button type="button" onClick={() => removeTask(task)} className="rounded p-1 text-gray-300 hover:bg-gray-50 hover:text-red-500" title={t('todos.delete')}><Trash2 size={16} /></button>
                                     </div>
                                   </div>
 
                                   {task.description && (
-                                    <p className="mt-0.5 text-sm text-gray-500 whitespace-pre-wrap">
-                                      {task.description}
-                                    </p>
+                                    <p className="mt-0.5 text-sm text-gray-500 whitespace-pre-wrap">{task.description}</p>
                                   )}
 
-                                  {subTasks.length > 0 && (
+                                  {subs.length > 0 && (
                                     <div className="mt-2 space-y-1">
-                                      {subTasks.map((sub) => (
-                                        <button
-                                          key={sub.id}
-                                          type="button"
-                                          onClick={() =>
-                                            updateTaskMeta(task.id, (prev) => ({
-                                              ...prev,
-                                              subTasks: (prev.subTasks || []).map((item) =>
-                                                item.id === sub.id ? { ...item, done: !item.done } : item,
-                                              ),
-                                            }))
-                                          }
-                                          className="flex items-center gap-2 text-xs text-gray-500"
-                                        >
-                                          <span
-                                            className={[
-                                              'flex h-4 w-4 items-center justify-center rounded border',
-                                              sub.done ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-gray-300',
-                                            ].join(' ')}
-                                          >
+                                      {subs.map((sub) => (
+                                        <button key={sub.id} type="button" onClick={() => handleToggleSubtaskInline(task.id, sub.id, sub.done)} className="flex items-center gap-2 text-xs text-gray-500">
+                                          <span className={['flex h-4 w-4 items-center justify-center rounded border', sub.done ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-gray-300'].join(' ')}>
                                             {sub.done && <CheckCircle2 size={12} />}
                                           </span>
                                           <span className={sub.done ? 'text-gray-400 line-through' : ''}>{sub.title}</span>
@@ -1647,41 +1783,43 @@ export default function TodosPage() {
                                     </div>
                                   )}
 
-                                  {subtaskOpen[task.id] && (
+                                  {subtaskOpenId === task.id && (
                                     <div className="mt-2 flex items-center gap-2">
-                                      <input
-                                        value={subtaskDrafts[task.id] || ''}
-                                        onChange={(e) =>
-                                          setSubtaskDrafts((prev) => ({ ...prev, [task.id]: e.target.value }))
-                                        }
-                                        placeholder={t('todos.subtaskPlaceholder')}
-                                        className="h-8 w-full rounded-lg border border-gray-200 bg-white px-2 text-xs text-gray-700 focus:border-purple-300 focus:outline-none focus:ring-2 focus:ring-purple-100"
-                                      />
-                                      <button
-                                        type="button"
-                                        onClick={() => handleAddSubtask(task.id)}
-                                        className="rounded-lg bg-purple-600 px-2 py-1 text-xs font-semibold text-white hover:bg-purple-700"
-                                      >
-                                        {t('todos.subtaskAdd')}
-                                      </button>
+                                      <input value={subtaskDraft} onChange={(e) => setSubtaskDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddSubtaskInline(task.id); } }} placeholder={t('todos.subtaskPlaceholder')} className="h-8 w-full rounded-lg border border-gray-200 bg-white px-2 text-xs text-gray-700 focus:border-purple-300 focus:outline-none focus:ring-2 focus:ring-purple-100" />
+                                      <button type="button" onClick={() => handleAddSubtaskInline(task.id)} className="rounded-lg bg-purple-600 px-2 py-1 text-xs font-semibold text-white hover:bg-purple-700">{t('todos.subtaskAdd')}</button>
                                     </div>
                                   )}
 
                                   <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-400">
-                                    {subTasks.length > 0 && (
-                                      <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-700">
-                                        {subDone}/{subTasks.length}
-                                      </span>
+                                    {subs.length > 0 && (
+                                      <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-700">{subDone}/{subs.length}</span>
                                     )}
                                     {task.priority > 0 && (
-                                      <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-amber-700">
-                                        {t('todos.priorityLabel').replace('{p}', String(task.priority))}
+                                      <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-amber-700">{t('todos.priorityLabel').replace('{p}', String(task.priority))}</span>
+                                    )}
+                                    {task.dueAt && (() => {
+                                      const today = toLocalDateKey();
+                                      const taskDate = isoToDateKey(task.dueAt);
+                                      const isOverdue = taskDate < today && task.status !== 'DONE';
+                                      const isToday = taskDate === today;
+                                      return (
+                                        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 ${
+                                          isOverdue ? 'border border-red-200 bg-red-50 text-red-600' :
+                                          isToday ? 'border border-amber-200 bg-amber-50 text-amber-700' :
+                                          'border border-gray-200 bg-white text-gray-400'
+                                        }`}>
+                                          <CalendarDays size={10} />
+                                          {isOverdue ? `↑ ${taskDate}` : isToday ? t('todos.setToday') : taskDate}
+                                        </span>
+                                      );
+                                    })()}
+                                    {task.repeatRule !== 'NONE' && (
+                                      <span className="inline-flex items-center gap-1 rounded-full border border-blue-100 bg-blue-50 px-2 py-0.5 text-blue-500">
+                                        <Repeat size={10} />{task.repeatRule.toLowerCase()}
                                       </span>
                                     )}
                                     {showList && (
-                                      <span className="rounded-full border border-gray-200 bg-white px-2 py-0.5">
-                                        {task.list.name}
-                                      </span>
+                                      <span className="rounded-full border border-gray-200 bg-white px-2 py-0.5">{task.list.name}</span>
                                     )}
                                   </div>
                                 </div>
@@ -1783,15 +1921,53 @@ export default function TodosPage() {
         </div>
       )}
 
+      {/* AI Summary modal */}
+      {summaryOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setSummaryOpen(false)}>
+          <div className="relative mx-4 flex max-h-[80vh] w-full max-w-lg flex-col rounded-2xl border border-gray-200 bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
+              <h3 className="text-lg font-semibold text-gray-900">{t('todos.summaryTitle')}</h3>
+              <button type="button" onClick={() => setSummaryOpen(false)} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"><X size={18} /></button>
+            </div>
+            <div className="flex items-center gap-2 border-b border-gray-100 px-6 py-3">
+              <button type="button" onClick={() => handleLoadSummary('week')} disabled={summaryLoading} className="rounded-lg bg-purple-50 px-3 py-1.5 text-xs font-semibold text-purple-700 hover:bg-purple-100 disabled:opacity-50">{t('todos.summaryWeek')}</button>
+              <button type="button" onClick={() => handleLoadSummary('month')} disabled={summaryLoading} className="rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100 disabled:opacity-50">{t('todos.summaryMonth')}</button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-6 py-4">
+              {summaryLoading && <p className="text-sm text-gray-500">{t('todos.summaryLoading')}</p>}
+              {!summaryLoading && summaryData && (
+                <>
+                  <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    <div className="rounded-xl border border-gray-100 bg-gray-50 p-3 text-center">
+                      <p className="text-2xl font-bold text-gray-900">{summaryData.stats.total}</p>
+                      <p className="text-xs text-gray-500">{t('todos.summaryTotal')}</p>
+                    </div>
+                    <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-3 text-center">
+                      <p className="text-2xl font-bold text-emerald-700">{summaryData.stats.completed}</p>
+                      <p className="text-xs text-emerald-600">{t('todos.summaryCompleted')}</p>
+                    </div>
+                    <div className="rounded-xl border border-red-100 bg-red-50 p-3 text-center">
+                      <p className="text-2xl font-bold text-red-700">{summaryData.stats.overdue}</p>
+                      <p className="text-xs text-red-600">{t('todos.summaryOverdue')}</p>
+                    </div>
+                    <div className="rounded-xl border border-blue-100 bg-blue-50 p-3 text-center">
+                      <p className="text-2xl font-bold text-blue-700">{Math.round(summaryData.stats.completionRate * 100)}%</p>
+                      <p className="text-xs text-blue-600">{t('todos.summaryRate')}</p>
+                    </div>
+                  </div>
+                  <div className="prose prose-sm max-w-none text-gray-700" dangerouslySetInnerHTML={{ __html: summaryData.summary.replace(/\n/g, '<br/>') }} />
+                </>
+              )}
+              {!summaryLoading && !summaryData && <p className="text-sm text-gray-400">{t('todos.summaryHint')}</p>}
+            </div>
+          </div>
+        </div>
+      )}
+
       <TodoTaskDrawer
         open={!!selectedTask}
         task={selectedTask}
         lists={lists}
-        color={selectedTask ? taskMeta[selectedTask.id]?.color : undefined}
-        onColorChange={(color) => {
-          if (!selectedTask) return;
-          updateTaskMeta(selectedTask.id, (prev) => ({ ...prev, color }));
-        }}
         onClose={() => setSelectedTask(null)}
         onSaved={async (updated) => {
           setSelectedTask(updated);

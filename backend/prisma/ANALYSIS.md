@@ -1,6 +1,6 @@
 # Prisma Schema / Migrations Notes
 
-Last updated: 2026-02-16
+Last updated: 2026-03-03
 
 ## Current Schema
 
@@ -85,6 +85,32 @@ migrations/20260216120000_add_debate/
 migrations/20260216120000_add_debate/migration.sql
 migrations/20260216140000_add_debate_agent_owner/
 migrations/20260216140000_add_debate_agent_owner/migration.sql
+migrations/20260226100000_add_knowledge_embedding/
+migrations/20260226100000_add_knowledge_embedding/migration.sql
+migrations/20260226150000_todo_kite_upgrade/
+migrations/20260226150000_todo_kite_upgrade/migration.sql
+migrations/20260226200000_add_insights/
+migrations/20260226200000_add_insights/migration.sql
+migrations/20260227100000_insights_d2_f1/
+migrations/20260227100000_insights_d2_f1/migration.sql
+migrations/20260227120000_store_bookmark/
+migrations/20260227120000_store_bookmark/migration.sql
+migrations/20260227200000_teams_extend/
+migrations/20260227200000_teams_extend/migration.sql
+migrations/20260228100000_github_cache/
+migrations/20260228100000_github_cache/migration.sql
+migrations/20260228100000_todo_knowledge_link/
+migrations/20260228100000_todo_knowledge_link/migration.sql
+migrations/20260228110000_github_trending/
+migrations/20260228110000_github_trending/migration.sql
+migrations/20260228130000_fix_team_enums/
+migrations/20260228130000_fix_team_enums/migration.sql
+migrations/20260228140000_fix_team_enums_v2/
+migrations/20260228140000_fix_team_enums_v2/migration.sql
+migrations/20260228200000_insight_share/
+migrations/20260228200000_insight_share/migration.sql
+migrations/20260301100000_add_game_save/
+migrations/20260301100000_add_game_save/migration.sql
 migrations/migration_lock.toml
 schema.prisma
 seed.ts

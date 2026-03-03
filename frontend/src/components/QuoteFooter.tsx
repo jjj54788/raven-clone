@@ -98,7 +98,7 @@ const themes = [
   },
 ] as const;
 
-const STORAGE_KEY = 'raven_quote_paused';
+const STORAGE_KEY = 'gewu_quote_paused';
 const ROTATE_MS = 12000;
 const FADE_MS = 280;
 

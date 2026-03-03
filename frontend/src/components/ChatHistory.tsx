@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useMemo } from 'react';
-import { MessageSquare, Plus, Trash2, ChevronsLeft, Search } from 'lucide-react';
+import { useState, useMemo, useRef } from 'react';
+import { MessageSquare, Plus, Trash2, ChevronsLeft, Search, Pencil, Check, X } from 'lucide-react';
 import { useLanguage } from '@/i18n/LanguageContext';
 
 interface Session {
@@ -19,6 +19,7 @@ interface ChatHistoryProps {
   onSelectSession: (id: string) => void;
   onNewChat: () => void;
   onDeleteSession: (id: string) => void;
+  onRenameSession: (id: string, title: string) => void;
 }
 
 type DateGroupKey = 'today' | 'yesterday' | 'older';
@@ -42,9 +43,121 @@ const groupI18nKeys: Record<DateGroupKey, string> = {
   older: 'history.older',
 };
 
+function SessionItem({
+  session,
+  isActive,
+  onSelect,
+  onDelete,
+  onRename,
+}: {
+  session: Session;
+  isActive: boolean;
+  onSelect: () => void;
+  onDelete: () => void;
+  onRename: (title: string) => void;
+}) {
+  const { t } = useLanguage();
+  const [editing, setEditing] = useState(false);
+  const [editValue, setEditValue] = useState(session.title);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const startEdit = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditValue(session.title);
+    setEditing(true);
+    setTimeout(() => inputRef.current?.select(), 0);
+  };
+
+  const confirmEdit = () => {
+    const trimmed = editValue.trim();
+    if (trimmed && trimmed !== session.title) {
+      onRename(trimmed);
+    }
+    setEditing(false);
+  };
+
+  const cancelEdit = () => {
+    setEditValue(session.title);
+    setEditing(false);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') { e.preventDefault(); confirmEdit(); }
+    if (e.key === 'Escape') { e.preventDefault(); cancelEdit(); }
+  };
+
+  if (editing) {
+    return (
+      <div
+        className={`mb-0.5 flex items-center gap-1 rounded-lg px-2 py-1.5 ${
+          isActive ? 'bg-purple-50' : 'bg-gray-50'
+        }`}
+      >
+        <input
+          ref={inputRef}
+          type="text"
+          value={editValue}
+          onChange={(e) => setEditValue(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onBlur={confirmEdit}
+          className="flex-1 min-w-0 bg-transparent text-sm text-gray-800 outline-none"
+          maxLength={100}
+          autoFocus
+        />
+        <button
+          type="button"
+          onMouseDown={(e) => { e.preventDefault(); confirmEdit(); }}
+          className="shrink-0 rounded p-1 text-emerald-500 hover:text-emerald-700"
+          title={t('history.renameHint')}
+        >
+          <Check size={12} />
+        </button>
+        <button
+          type="button"
+          onMouseDown={(e) => { e.preventDefault(); cancelEdit(); }}
+          className="shrink-0 rounded p-1 text-gray-400 hover:text-gray-600"
+          title={t('history.renameCancel')}
+        >
+          <X size={12} />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      onClick={onSelect}
+      className={`group mb-0.5 flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 transition-colors ${
+        isActive
+          ? 'bg-purple-50 text-purple-700'
+          : 'text-gray-700 hover:bg-gray-50'
+      }`}
+    >
+      <MessageSquare size={14} className="shrink-0 opacity-50" />
+      <p className="flex-1 min-w-0 truncate text-sm">{session.title}</p>
+      <div className="hidden shrink-0 items-center gap-0.5 group-hover:flex">
+        <button
+          onClick={startEdit}
+          className="rounded p-1 text-gray-300 hover:text-blue-500"
+          title={t('history.rename')}
+        >
+          <Pencil size={12} />
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          className="rounded p-1 text-gray-300 hover:text-red-500"
+          title={t('history.delete')}
+        >
+          <Trash2 size={12} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function ChatHistory({
   visible, onClose, sessions, activeSessionId,
-  onSelectSession, onNewChat, onDeleteSession,
+  onSelectSession, onNewChat, onDeleteSession, onRenameSession,
 }: ChatHistoryProps) {
   const [search, setSearch] = useState('');
   const { t } = useLanguage();
@@ -128,25 +241,14 @@ export default function ChatHistory({
                   {t(groupI18nKeys[groupKey])}
                 </p>
                 {items.map((session) => (
-                  <div
+                  <SessionItem
                     key={session.id}
-                    onClick={() => onSelectSession(session.id)}
-                    className={`group mb-0.5 flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 transition-colors ${
-                      activeSessionId === session.id
-                        ? 'bg-purple-50 text-purple-700'
-                        : 'text-gray-700 hover:bg-gray-50'
-                    }`}
-                  >
-                    <MessageSquare size={14} className="shrink-0 opacity-50" />
-                    <p className="flex-1 min-w-0 truncate text-sm">{session.title}</p>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); onDeleteSession(session.id); }}
-                      className="hidden rounded p-1 text-gray-300 hover:text-red-500 group-hover:block"
-                      title={t('history.delete')}
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  </div>
+                    session={session}
+                    isActive={activeSessionId === session.id}
+                    onSelect={() => onSelectSession(session.id)}
+                    onDelete={() => onDeleteSession(session.id)}
+                    onRename={(title) => onRenameSession(session.id, title)}
+                  />
                 ))}
               </div>
             );

@@ -1,6 +1,6 @@
 'use client';
 
-import type { ProfileIntegrations, ProfileSettings, RavenUser } from '@/lib/api';
+import type { ProfileIntegrations, ProfileSettings, GewuUser } from '@/lib/api';
 
 export type ProfileStore = {
   bio: string;
@@ -10,8 +10,8 @@ export type ProfileStore = {
   joinedAt: string;
 };
 
-export const PROFILE_STORAGE_PREFIX = 'raven_profile_v1';
-const PROFILE_EVENT = 'raven:profile';
+export const PROFILE_STORAGE_PREFIX = 'gewu_profile_v1';
+const PROFILE_EVENT = 'gewu:profile';
 
 export const DEFAULT_PROFILE_SETTINGS: ProfileSettings = {
   userBubble: 'purple',
@@ -38,7 +38,7 @@ export const DEFAULT_PROFILE_STORE: ProfileStore = {
   joinedAt: new Date().toISOString(),
 };
 
-export function getProfileUserKey(user?: RavenUser | null): string {
+export function getProfileUserKey(user?: GewuUser | null): string {
   const key = String(user?.id || user?.email || 'guest').toLowerCase();
   return key;
 }

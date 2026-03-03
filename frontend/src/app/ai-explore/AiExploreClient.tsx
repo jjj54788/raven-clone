@@ -12,6 +12,7 @@ import {
   ArrowUp,
   Bookmark,
   BookmarkCheck,
+  BookPlus,
   FileText,
   Filter,
   Landmark,
@@ -23,9 +24,10 @@ import {
   Youtube,
 } from 'lucide-react';
 import Sidebar from '@/components/Sidebar';
+import SaveToKnowledgeDrawer from '@/components/SaveToKnowledgeDrawer';
 import { useAuth } from '@/hooks';
 import { useLanguage } from '@/i18n/LanguageContext';
-import { getUser, getYoutubeExplore } from '@/lib/api';
+import { getUser, getYoutubeExplore, getPapersExplore, getBlogsExplore } from '@/lib/api';
 import {
   ExploreCategory,
   exploreItems,
@@ -128,12 +130,25 @@ function AiExploreClient() {
   const [keywordInput, setKeywordInput] = useState('');
   const [userId, setUserId] = useState<string | null>(null);
   const [bookmarks, setBookmarks] = useState<string[]>([]);
+  const [kbDrawer, setKbDrawer] = useState<{
+    title: string;
+    content: string;
+    source: string;
+    sourceUrl: string;
+    tags: string[];
+  } | null>(null);
   const [youtubeItems, setYoutubeItems] = useState<typeof exploreItems>([]);
   const [youtubeLoading, setYoutubeLoading] = useState(false);
   const [youtubeLoadingMore, setYoutubeLoadingMore] = useState(false);
   const [youtubeError, setYoutubeError] = useState<string | null>(null);
   const [nextPageToken, setNextPageToken] = useState<string | null>(null);
   const [usingFallback, setUsingFallback] = useState(false);
+  const [paperItems, setPaperItems] = useState<typeof exploreItems>([]);
+  const [paperLoading, setPaperLoading] = useState(false);
+  const [paperError, setPaperError] = useState<string | null>(null);
+  const [blogItems, setBlogItems] = useState<typeof exploreItems>([]);
+  const [blogLoading, setBlogLoading] = useState(false);
+  const [blogError, setBlogError] = useState<string | null>(null);
   const [showBackTop, setShowBackTop] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
@@ -188,6 +203,13 @@ function AiExploreClient() {
         youtubeFallback: '当前显示示例数据，请稍后重试',
         loadedCount: (count: number) => `已加载 ${count} 条`,
         backToTop: '回到顶部',
+        saveToKb: '存入知识库',
+        saveToKbTitle: '保存到知识库',
+        paperLoading: '正在获取最新论文...',
+        paperError: 'arXiv 数据暂不可用，显示示例内容',
+        blogLoading: '正在加载博客内容...',
+        blogError: '博客 RSS 暂不可用，显示示例内容',
+        dynamicLoading: (count: number) => `已获取 ${count} 条`,
       };
     }
     return {
@@ -212,6 +234,13 @@ function AiExploreClient() {
       youtubeFallback: 'Showing sample data for now. Please try again later.',
       loadedCount: (count: number) => `Loaded ${count} items`,
       backToTop: 'Back to top',
+      saveToKb: 'Save to KB',
+      saveToKbTitle: 'Save to Knowledge Base',
+      paperLoading: 'Fetching latest papers...',
+      paperError: 'arXiv unavailable, showing sample content',
+      blogLoading: 'Loading blog posts...',
+      blogError: 'Blog RSS unavailable, showing sample content',
+      dynamicLoading: (count: number) => `Fetched ${count} items`,
     };
   }, [locale]);
 
@@ -314,7 +343,10 @@ function AiExploreClient() {
         channel: item.channel,
         thumbnailUrl: item.thumbnailUrl,
       }));
-      setYoutubeItems((prev) => [...prev, ...mapped]);
+      setYoutubeItems((prev) => {
+        const existingIds = new Set(prev.map((i) => i.id));
+        return [...prev, ...mapped.filter((i) => !existingIds.has(i.id))];
+      });
       setNextPageToken(data?.nextPageToken ?? null);
     } catch (err: any) {
       setYoutubeError(err?.message || uiText.youtubeError);
@@ -352,6 +384,93 @@ function AiExploreClient() {
     scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  // ── Papers fetch ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!authReady || tab !== 'paper') return () => {};
+    let cancelled = false;
+    const run = async () => {
+      setPaperLoading(true);
+      setPaperError(null);
+      try {
+        const data = await getPapersExplore({
+          q: search.trim() || undefined,
+          keywords: activeKeywords.length > 0 ? activeKeywords : undefined,
+          max: 12,
+        });
+        if (cancelled) return;
+        const mapped = (data?.items ?? []).map((item) => ({
+          id: item.id,
+          category: 'paper' as ExploreCategory,
+          title: { en: item.title, zh: item.title },
+          summary: { en: item.summary, zh: item.summary },
+          source: item.source,
+          url: item.url,
+          publishedAt: item.publishedAt,
+          tags: item.tags,
+        }));
+        if (mapped.length > 0) {
+          setPaperItems(mapped);
+        } else {
+          // API returned empty — fall back to static items
+          setPaperItems(exploreItems.filter((i) => i.category === 'paper'));
+          setPaperError(uiText.paperError);
+        }
+      } catch {
+        if (!cancelled) {
+          setPaperItems(exploreItems.filter((i) => i.category === 'paper'));
+          setPaperError(uiText.paperError);
+        }
+      } finally {
+        if (!cancelled) setPaperLoading(false);
+      }
+    };
+    const handle = window.setTimeout(run, 400);
+    return () => { cancelled = true; window.clearTimeout(handle); };
+  }, [authReady, tab, search, activeKeywords, uiText.paperError]);
+
+  // ── Blogs fetch ───────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!authReady || tab !== 'blog') return () => {};
+    let cancelled = false;
+    const run = async () => {
+      setBlogLoading(true);
+      setBlogError(null);
+      try {
+        const data = await getBlogsExplore({
+          q: search.trim() || undefined,
+          keywords: activeKeywords.length > 0 ? activeKeywords : undefined,
+          max: 12,
+        });
+        if (cancelled) return;
+        const mapped = (data?.items ?? []).map((item) => ({
+          id: item.id,
+          category: 'blog' as ExploreCategory,
+          title: { en: item.title, zh: item.title },
+          summary: { en: item.summary, zh: item.summary },
+          source: item.source,
+          url: item.url,
+          publishedAt: item.publishedAt,
+          tags: item.tags,
+        }));
+        if (mapped.length > 0) {
+          setBlogItems(mapped);
+        } else {
+          setBlogItems(exploreItems.filter((i) => i.category === 'blog'));
+          setBlogError(uiText.blogError);
+        }
+      } catch {
+        if (!cancelled) {
+          setBlogItems(exploreItems.filter((i) => i.category === 'blog'));
+          setBlogError(uiText.blogError);
+        }
+      } finally {
+        if (!cancelled) setBlogLoading(false);
+      }
+    };
+    const handle = window.setTimeout(run, 400);
+    return () => { cancelled = true; window.clearTimeout(handle); };
+  }, [authReady, tab, search, activeKeywords, uiText.blogError]);
+
   const filtered = useMemo(() => {
     if (tab === 'youtube') {
       let items = [...youtubeItems];
@@ -372,7 +491,10 @@ function AiExploreClient() {
             if (!hay.includes(q)) return false;
           }
           if (keywordSet.size === 0) return true;
-          return item.tags.some((tag) => keywordSet.has(tag.toLowerCase()));
+          // For fallback RSS items, match against title/summary too (not just tags)
+          const hay2 = `${item.title.en} ${item.summary.en} ${item.channel ?? ''}`.toLowerCase();
+          return item.tags.some((tag) => keywordSet.has(tag.toLowerCase()))
+            || Array.from(keywordSet).some((kw) => hay2.includes(kw));
         });
       }
       const sorted = items.sort((a, b) => {
@@ -383,8 +505,20 @@ function AiExploreClient() {
       });
       return sorted;
     }
+
+    // Papers — server-side filtered, use dynamic items if loaded
+    if (tab === 'paper') {
+      return paperItems;
+    }
+
+    // Blogs — server-side filtered, use dynamic items if loaded
+    if (tab === 'blog') {
+      return blogItems;
+    }
+
+    // Other static categories (report, policy, news)
     const q = search.trim().toLowerCase();
-    let items = exploreItems.filter((item) => {
+    return exploreItems.filter((item) => {
       if (item.category !== tab) return false;
       if (!q) return true;
       const hay = [
@@ -397,9 +531,7 @@ function AiExploreClient() {
       ].join(' ').toLowerCase();
       return hay.includes(q);
     });
-
-    return items;
-  }, [search, tab, youtubeItems, sortBy, usingFallback, activeKeywords]);
+  }, [search, tab, youtubeItems, sortBy, usingFallback, activeKeywords, paperItems, blogItems]);
 
   if (!authReady) {
     return (
@@ -454,10 +586,7 @@ function AiExploreClient() {
                         key={cat}
                         type="button"
                         className={pillClass(tab === cat)}
-                        onClick={() => {
-                          setTab(cat);
-                          setActiveKeywords([]);
-                        }}
+                        onClick={() => setTab(cat)}
                       >
                         <Icon size={14} />
                         {getExploreCategoryLabel(cat, locale)}
@@ -547,15 +676,36 @@ function AiExploreClient() {
                 {uiText.youtubeFallback}
               </div>
             ) : null}
+            {tab === 'paper' && paperError ? (
+              <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                {paperError}
+              </div>
+            ) : null}
+            {tab === 'blog' && blogError ? (
+              <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                {blogError}
+              </div>
+            ) : null}
             {tab === 'youtube' && filtered.length > 0 ? (
               <div className="mb-3 flex items-center justify-between text-xs text-gray-500">
                 <span>{uiText.loadedCount(filtered.length)}</span>
                 {youtubeLoadingMore && <span>{uiText.youtubeLoadingMore}</span>}
               </div>
             ) : null}
+            {(tab === 'paper' || tab === 'blog') && filtered.length > 0 ? (
+              <div className="mb-3 text-xs text-gray-500">
+                {uiText.dynamicLoading(filtered.length)}
+              </div>
+            ) : null}
             {filtered.length === 0 ? (
               <div className="rounded-2xl border border-gray-200 bg-white p-10 text-center text-sm text-gray-400">
-                {tab === 'youtube' && youtubeLoading ? uiText.youtubeLoading : uiText.empty}
+                {tab === 'youtube' && youtubeLoading
+                  ? uiText.youtubeLoading
+                  : tab === 'paper' && paperLoading
+                    ? uiText.paperLoading
+                    : tab === 'blog' && blogLoading
+                      ? uiText.blogLoading
+                      : uiText.empty}
               </div>
             ) : (
               <div className="space-y-4">
@@ -615,19 +765,38 @@ function AiExploreClient() {
                               )}
                               <p className="mt-2 line-clamp-2 text-sm text-gray-600">{summary}</p>
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => setBookmarks(toggleExploreBookmark(userId, item.id, item))}
-                              className={[
-                                'inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs font-medium transition-colors',
-                                isBookmarked
-                                  ? 'border-purple-200 bg-purple-50 text-purple-700'
-                                  : 'border-gray-200 bg-white text-gray-500 hover:bg-gray-50',
-                              ].join(' ')}
-                            >
-                              {isBookmarked ? <BookmarkCheck size={14} /> : <Bookmark size={14} />}
-                              <span>{isBookmarked ? uiText.bookmarked : uiText.bookmark}</span>
-                            </button>
+                            <div className="flex flex-shrink-0 items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setBookmarks(toggleExploreBookmark(userId, item.id, item))}
+                                className={[
+                                  'inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs font-medium transition-colors',
+                                  isBookmarked
+                                    ? 'border-purple-200 bg-purple-50 text-purple-700'
+                                    : 'border-gray-200 bg-white text-gray-500 hover:bg-gray-50',
+                                ].join(' ')}
+                              >
+                                {isBookmarked ? <BookmarkCheck size={14} /> : <Bookmark size={14} />}
+                                <span>{isBookmarked ? uiText.bookmarked : uiText.bookmark}</span>
+                              </button>
+                              <button
+                                type="button"
+                                title={uiText.saveToKbTitle}
+                                onClick={() =>
+                                  setKbDrawer({
+                                    title,
+                                    content: summary,
+                                    source: isYoutube ? 'YouTube' : item.source,
+                                    sourceUrl: item.url,
+                                    tags: [...item.tags, item.category],
+                                  })
+                                }
+                                className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-50"
+                              >
+                                <BookPlus size={14} />
+                                <span>{uiText.saveToKb}</span>
+                              </button>
+                            </div>
                           </div>
 
                           <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-gray-500">
@@ -678,6 +847,18 @@ function AiExploreClient() {
           <ArrowUp size={16} />
           {uiText.backToTop}
         </button>
+      )}
+
+      {kbDrawer && (
+        <SaveToKnowledgeDrawer
+          open
+          onClose={() => setKbDrawer(null)}
+          initialTitle={kbDrawer.title}
+          initialContent={kbDrawer.content}
+          source={kbDrawer.source}
+          sourceUrl={kbDrawer.sourceUrl}
+          initialTags={kbDrawer.tags}
+        />
       )}
     </div>
   );

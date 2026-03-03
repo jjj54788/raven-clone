@@ -2,9 +2,10 @@
 
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { Copy, Quote, Check } from 'lucide-react';
+import { BookMarked, Check, Copy, Quote } from 'lucide-react';
 import { useLanguage } from '@/i18n/LanguageContext';
 import { useChatAppearance } from '@/hooks';
+import SaveToKnowledgeDrawer from './SaveToKnowledgeDrawer';
 
 interface ChatMessageProps {
   role: 'user' | 'assistant';
@@ -13,6 +14,7 @@ interface ChatMessageProps {
   provider?: string;
   isStreaming?: boolean;
   onQuote?: (content: string) => void;
+  userQuestion?: string;
 }
 
 /** Map provider name to a color class */
@@ -34,10 +36,11 @@ function providerIcon(provider?: string): string {
   }
 }
 
-export default function ChatMessage({ role, content, model, provider, isStreaming, onQuote }: ChatMessageProps) {
+export default function ChatMessage({ role, content, model, provider, isStreaming, onQuote, userQuestion }: ChatMessageProps) {
   const [copied, setCopied] = useState(false);
+  const [kbDrawerOpen, setKbDrawerOpen] = useState(false);
   const { t } = useLanguage();
-  const { userBubbleClass, aiBubbleClass } = useChatAppearance();
+  const { userBubbleClass } = useChatAppearance();
 
   const handleCopy = () => {
     navigator.clipboard.writeText(content);
@@ -60,7 +63,7 @@ export default function ChatMessage({ role, content, model, provider, isStreamin
   }
 
   return (
-    <div className="flex flex-col gap-1 max-w-[85%]">
+    <div className="group flex flex-col gap-1 max-w-[85%]">
       {/* Model identifier */}
       {model && (
         <div className="flex items-center gap-1.5 px-1">
@@ -71,19 +74,17 @@ export default function ChatMessage({ role, content, model, provider, isStreamin
         </div>
       )}
 
-      {/* Message body */}
-      <div className={`rounded-2xl px-4 py-3 shadow-sm ${aiBubbleClass}`}>
-        <div className="prose prose-sm max-w-none">
-          <ReactMarkdown>{content}</ReactMarkdown>
-          {isStreaming && (
-            <span className="inline-block w-1.5 h-4 ml-0.5 bg-purple-500 animate-pulse rounded-sm" />
-          )}
-        </div>
+      {/* Message body — no bubble, markdown sits directly on background */}
+      <div className="prose prose-sm max-w-none px-1 text-gray-800">
+        <ReactMarkdown>{content}</ReactMarkdown>
+        {isStreaming && (
+          <span className="inline-block w-1.5 h-4 ml-0.5 bg-purple-500 animate-pulse rounded-sm" />
+        )}
       </div>
 
       {/* Action buttons */}
       {!isStreaming && content && (
-        <div className="flex items-center gap-2 px-1 mt-0.5">
+        <div className="flex items-center gap-2 px-1 mt-0.5 opacity-0 translate-y-1 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-200">
           <button
             onClick={handleCopy}
             className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
@@ -98,8 +99,28 @@ export default function ChatMessage({ role, content, model, provider, isStreamin
             <Quote size={12} />
             {t('chat.quote')}
           </button>
+          <button
+            onClick={() => setKbDrawerOpen(true)}
+            className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+          >
+            <BookMarked size={12} />
+            {t('kb.saveToKb')}
+          </button>
         </div>
       )}
+
+      <SaveToKnowledgeDrawer
+        open={kbDrawerOpen}
+        onClose={() => setKbDrawerOpen(false)}
+        initialTitle={content.slice(0, 80).trim()}
+        initialContent={
+          userQuestion
+            ? `**Q:** ${userQuestion}\n\n**A:** ${content}`
+            : content
+        }
+        source="AI Ask"
+        initialTags={['ask', ...(model ? [model.toLowerCase()] : [])]}
+      />
     </div>
   );
 }

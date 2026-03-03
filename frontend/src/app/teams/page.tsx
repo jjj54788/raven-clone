@@ -12,7 +12,9 @@ export default function TeamsPage() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const { userName, authReady } = useAuth();
   const { locale } = useLanguage();
-  const { teams, ready, addTeam } = useTeams(userName, authReady);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const { teams, ready, addTeam } = useTeams(authReady);
 
   const [tab, setTab] = useState<'mine' | 'discover'>('mine');
   const [search, setSearch] = useState('');
@@ -173,11 +175,22 @@ export default function TeamsPage() {
 
       <CreateTeamModal
         open={createOpen}
-        onClose={() => setCreateOpen(false)}
-        onCreate={(draft) => {
-          addTeam(draft);
-          setCreateOpen(false);
+        onClose={() => { setCreateOpen(false); setCreateError(null); }}
+        onCreate={async (draft) => {
+          setCreating(true);
+          setCreateError(null);
+          try {
+            await addTeam(draft);
+            setCreateOpen(false);
+          } catch (err: any) {
+            const msg = err?.message || (locale === 'zh' ? '创建失败，请重试' : 'Failed to create team. Please try again.');
+            setCreateError(msg);
+          } finally {
+            setCreating(false);
+          }
         }}
+        creating={creating}
+        apiError={createError}
       />
     </div>
   );

@@ -22,7 +22,16 @@ import {
 import Sidebar from '@/components/Sidebar';
 import { useAuth } from '@/hooks';
 import { useLanguage } from '@/i18n/LanguageContext';
-import { getUser } from '@/lib/api';
+import {
+  createTaskFromNote,
+  getUser,
+  listKnowledgeNotes,
+  searchKnowledgeNotes,
+  getKnowledgeEmbedStatus,
+  embedKnowledgeNote,
+  type KnowledgeNote,
+  type KnowledgeEmbedStats,
+} from '@/lib/api';
 import {
   ExploreBookmarkItem,
   ExploreCategory,
@@ -141,6 +150,15 @@ export default function MyLibraryPage() {
   const [userId, setUserId] = useState<string | null>(null);
   const [bookmarks, setBookmarks] = useState<string[]>([]);
   const [bookmarkItems, setBookmarkItems] = useState<ExploreBookmarkItem[]>([]);
+  const [notes, setNotes] = useState<(KnowledgeNote & { score?: number })[]>([]);
+  const [notesLoading, setNotesLoading] = useState(false);
+  const [notesError, setNotesError] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchMode, setSearchMode] = useState<'keyword' | 'semantic'>('keyword');
+  const [embedStats, setEmbedStats] = useState<KnowledgeEmbedStats | null>(null);
+  const [embeddingNoteId, setEmbeddingNoteId] = useState<string | null>(null);
+  const [addingTodoNoteId, setAddingTodoNoteId] = useState<string | null>(null);
+  const [addedTodoNoteId, setAddedTodoNoteId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!authReady) return;
@@ -156,6 +174,39 @@ export default function MyLibraryPage() {
     refresh();
     return subscribeExploreBookmarks(refresh);
   }, [authReady, userId]);
+
+  useEffect(() => {
+    if (!authReady || topTab !== 'data' || subTab !== 'notes') return;
+    let cancelled = false;
+    const fetchNotes = async () => {
+      setNotesLoading(true);
+      setNotesError('');
+      try {
+        let data: (KnowledgeNote & { score?: number })[];
+        if (searchMode === 'semantic' && searchQuery.trim()) {
+          data = await searchKnowledgeNotes(searchQuery.trim(), 20);
+        } else {
+          data = await listKnowledgeNotes({ q: searchMode === 'keyword' ? searchQuery.trim() || undefined : undefined, take: 50 });
+        }
+        if (!cancelled) setNotes(data);
+      } catch (err: any) {
+        if (!cancelled) setNotesError(err?.message || 'Failed to load notes');
+      } finally {
+        if (!cancelled) setNotesLoading(false);
+      }
+    };
+    fetchNotes();
+    return () => {
+      cancelled = true;
+    };
+  }, [authReady, topTab, subTab, searchQuery, searchMode]);
+
+  useEffect(() => {
+    if (!authReady || topTab !== 'data' || subTab !== 'overview') return;
+    getKnowledgeEmbedStatus()
+      .then((stats) => setEmbedStats(stats))
+      .catch(() => setEmbedStats(null));
+  }, [authReady, topTab, subTab]);
 
   const exploreItemMap = useMemo(() => {
     const map = new Map<string, ExploreBookmarkItem>();
@@ -188,6 +239,16 @@ export default function MyLibraryPage() {
       return bTime - aTime;
     });
   }, [resolvedBookmarks]);
+
+  const filteredBookmarks = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return sortedBookmarks;
+    return sortedBookmarks.filter((item) => {
+      const title = (locale === 'zh' ? item.title.zh : item.title.en).toLowerCase();
+      const summary = (locale === 'zh' ? item.summary.zh : item.summary.en).toLowerCase();
+      return title.includes(query) || summary.includes(query) || item.url.toLowerCase().includes(query);
+    });
+  }, [sortedBookmarks, locale, searchQuery]);
 
   const uiText = useMemo(() => {
     if (locale === 'zh') {
@@ -227,6 +288,8 @@ export default function MyLibraryPage() {
           explore: '来自 AI 探索的收藏会显示在这里',
           emptyTab: '该栏目内容即将上线',
           noBookmarks: '暂无书签',
+          noNotes: '暂无笔记',
+          notesIntro: '最近的摘要和笔记将显示在这里',
         },
         platformCards: {
           bookmarks: { title: '书签', desc: '点击浏览' },
@@ -278,6 +341,8 @@ export default function MyLibraryPage() {
         explore: 'Bookmarks from AI Explore show up here',
         emptyTab: 'This section is coming soon',
         noBookmarks: 'No bookmarks yet',
+        noNotes: 'No notes yet',
+        notesIntro: 'Recent summaries and notes will appear here',
       },
       platformCards: {
         bookmarks: { title: 'Bookmarks', desc: 'View items' },
@@ -359,6 +424,7 @@ export default function MyLibraryPage() {
 
   const showOverview = subTab === 'overview';
   const showBookmarks = subTab === 'bookmarks' || subTab === 'overview';
+  const showNotes = subTab === 'notes';
 
   if (!authReady) {
     return (
@@ -398,6 +464,8 @@ export default function MyLibraryPage() {
               <SearchIcon size={16} className="text-gray-400" />
               <input
                 placeholder={uiText.searchPlaceholder}
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
                 className="w-full bg-transparent text-sm text-gray-700 outline-none placeholder:text-gray-400"
               />
             </div>
@@ -445,8 +513,16 @@ export default function MyLibraryPage() {
                     <section>
                       <div className="mb-3 flex items-center justify-between gap-3">
                         <h2 className="text-base font-semibold text-gray-900">{uiText.sections.dataSources}</h2>
-                        <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
-                          RAG OK
+                        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                          embedStats
+                            ? embedStats.ready
+                              ? 'bg-emerald-50 text-emerald-700'
+                              : 'bg-amber-50 text-amber-700'
+                            : 'bg-gray-100 text-gray-500'
+                        }`}>
+                          {embedStats
+                            ? `RAG ${embedStats.embedded}/${embedStats.total}`
+                            : 'RAG ...'}
                         </span>
                       </div>
                       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
@@ -543,16 +619,16 @@ export default function MyLibraryPage() {
                         <p className="mt-1 text-xs text-gray-500">{uiText.hints.explore}</p>
                       </div>
                       <span className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-xs font-semibold text-gray-600">
-                        {sortedBookmarks.length}
+                        {filteredBookmarks.length}
                       </span>
                     </div>
-                    {sortedBookmarks.length === 0 ? (
+                    {filteredBookmarks.length === 0 ? (
                       <div className="rounded-2xl border border-gray-200 bg-white p-10 text-center text-sm text-gray-400">
                         {uiText.hints.noBookmarks}
                       </div>
                     ) : (
                       <div className="space-y-4">
-                        {sortedBookmarks.map((item) => {
+                        {filteredBookmarks.map((item) => {
                           const Icon = CATEGORY_ICON[item.category];
                           const title = locale === 'zh' ? item.title.zh : item.title.en;
                           const summary = locale === 'zh' ? item.summary.zh : item.summary.en;
@@ -634,6 +710,171 @@ export default function MyLibraryPage() {
                   </section>
                 )}
 
+                {showNotes && (
+                  <section>
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <h2 className="text-base font-semibold text-gray-900">{uiText.subTabs.notes}</h2>
+                        <p className="mt-1 text-xs text-gray-500">{uiText.hints.notesIntro}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1 rounded-xl border border-gray-200 bg-gray-50 p-0.5">
+                          <button
+                            type="button"
+                            className={`rounded-lg px-3 py-1 text-xs font-semibold transition-colors ${
+                              searchMode === 'keyword'
+                                ? 'bg-white text-purple-700 shadow-sm'
+                                : 'text-gray-500 hover:text-gray-700'
+                            }`}
+                            onClick={() => setSearchMode('keyword')}
+                          >
+                            {locale === 'zh' ? '关键词' : 'Keyword'}
+                          </button>
+                          <button
+                            type="button"
+                            className={`rounded-lg px-3 py-1 text-xs font-semibold transition-colors ${
+                              searchMode === 'semantic'
+                                ? 'bg-white text-purple-700 shadow-sm'
+                                : 'text-gray-500 hover:text-gray-700'
+                            }`}
+                            onClick={() => setSearchMode('semantic')}
+                          >
+                            {locale === 'zh' ? '语义搜索' : 'Semantic'}
+                          </button>
+                        </div>
+                        <span className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-xs font-semibold text-gray-600">
+                          {notes.length}
+                        </span>
+                      </div>
+                    </div>
+                    {notesLoading ? (
+                      <div className="rounded-2xl border border-gray-200 bg-white p-10 text-center text-sm text-gray-400">
+                        Loading...
+                      </div>
+                    ) : notesError ? (
+                      <div className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-700">
+                        {notesError}
+                      </div>
+                    ) : notes.length === 0 ? (
+                      <div className="rounded-2xl border border-gray-200 bg-white p-10 text-center text-sm text-gray-400">
+                        {uiText.hints.noNotes}
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {notes.map((note) => {
+                          const href = note.sourceUrl ? safeUrl(note.sourceUrl) : '';
+                          const domain = note.sourceUrl ? getDomain(note.sourceUrl) : '';
+                          return (
+                            <div
+                              key={note.id}
+                              className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
+                            >
+                              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500">
+                                <div className="flex items-center gap-2">
+                                  <span>{formatDate(note.createdAt, locale)}</span>
+                                  {note.source ? (
+                                    <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[11px] text-gray-600">
+                                      {note.source}
+                                    </span>
+                                  ) : null}
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  {note.score !== undefined ? (
+                                    <span className="rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 text-[11px] font-semibold text-purple-700">
+                                      {Math.round(note.score * 100)}% match
+                                    </span>
+                                  ) : null}
+                                  <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
+                                    note.embeddedAt
+                                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                      : 'border-gray-200 bg-gray-50 text-gray-400'
+                                  }`}>
+                                    {note.embeddedAt ? 'RAG ✓' : 'No vector'}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    disabled={embeddingNoteId === note.id}
+                                    onClick={async () => {
+                                      setEmbeddingNoteId(note.id);
+                                      try {
+                                        await embedKnowledgeNote(note.id);
+                                        const data = await listKnowledgeNotes({ take: 50 });
+                                        setNotes(data);
+                                      } catch {
+                                        // ignore
+                                      } finally {
+                                        setEmbeddingNoteId(null);
+                                      }
+                                    }}
+                                    className="text-[11px] font-semibold text-purple-600 hover:text-purple-800 disabled:text-gray-400"
+                                  >
+                                    {embeddingNoteId === note.id
+                                      ? (locale === 'zh' ? '向量化中...' : 'Embedding...')
+                                      : note.embeddedAt
+                                        ? (locale === 'zh' ? '重新向量化' : 'Re-embed')
+                                        : (locale === 'zh' ? '向量化' : 'Embed')}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={addingTodoNoteId === note.id}
+                                    onClick={async () => {
+                                      if (addedTodoNoteId === note.id) return;
+                                      setAddingTodoNoteId(note.id);
+                                      try {
+                                        await createTaskFromNote(note.id, note.title);
+                                        setAddedTodoNoteId(note.id);
+                                        setTimeout(() => setAddedTodoNoteId(null), 2000);
+                                      } catch {
+                                        // ignore
+                                      } finally {
+                                        setAddingTodoNoteId(null);
+                                      }
+                                    }}
+                                    className="text-[11px] font-semibold text-emerald-600 hover:text-emerald-800 disabled:text-gray-400"
+                                  >
+                                    {addingTodoNoteId === note.id
+                                      ? (locale === 'zh' ? '创建中...' : 'Adding...')
+                                      : addedTodoNoteId === note.id
+                                        ? (locale === 'zh' ? '✓ 已添加' : '✓ Added')
+                                        : (locale === 'zh' ? '+ 待办' : '+ Todo')}
+                                  </button>
+                                </div>
+                              </div>
+                              {href ? (
+                                <a
+                                  href={href}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="mt-2 block text-base font-semibold text-gray-900 hover:text-purple-700"
+                                >
+                                  {note.title}
+                                </a>
+                              ) : (
+                                <h3 className="mt-2 text-base font-semibold text-gray-900">{note.title}</h3>
+                              )}
+                              <p className="mt-2 line-clamp-3 text-sm text-gray-600">
+                                {note.content}
+                              </p>
+                              <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                                {domain ? (
+                                  <span className="rounded-full border border-gray-200 bg-white px-2 py-0.5 text-gray-500">
+                                    {domain}
+                                  </span>
+                                ) : null}
+                                {note.tags.map((tag) => (
+                                  <span key={tag} className={`rounded-full border px-2 py-0.5 ${tagClass(tag)}`}>
+                                    {tag}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </section>
+                )}
+
                 {showOverview && (
                   <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
                     <div className="flex items-start gap-3">
@@ -652,7 +893,7 @@ export default function MyLibraryPage() {
                   </section>
                 )}
 
-                {!showOverview && !showBookmarks && (
+                {!showOverview && !showBookmarks && !showNotes && (
                   <div className="rounded-2xl border border-gray-200 bg-white p-10 text-center text-sm text-gray-400">
                     {uiText.hints.emptyTab}
                   </div>

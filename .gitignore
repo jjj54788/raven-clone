@@ -12,3 +12,5 @@ Thumbs.db
 coverage/
 package-lock.json
 tsconfig.tsbuildinfo
+.claude/
+external/verl/

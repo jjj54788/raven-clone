@@ -4,8 +4,9 @@ import { LanguageProvider } from '@/i18n/LanguageContext';
 import ThemeProvider from '@/components/ThemeProvider';
 
 export const metadata: Metadata = {
-  title: 'Raven AI Engine - AI-Powered Research Platform',
-  description: 'AI-Powered Research Platform',
+  title: '格物 · Gewu - AI 研究与知识平台',
+  description: '格物致知 — AI 驱动的研究、探索与知识管理平台',
+  icons: { icon: '/favicon.svg' },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36">
+  <!-- Background -->
+  <rect width="36" height="36" rx="8" fill="#1e3a8a"/>
+  <!-- Grid outer border (representing 格) -->
+  <rect x="7" y="7" width="22" height="22" rx="1.5" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="1.5"/>
+  <!-- Vertical center divider -->
+  <line x1="18" y1="7" x2="18" y2="29" stroke="rgba(255,255,255,0.5)" stroke-width="1.5"/>
+  <!-- Horizontal center divider -->
+  <line x1="7" y1="18" x2="29" y2="18" stroke="rgba(255,255,255,0.5)" stroke-width="1.5"/>
+  <!-- Highlighted cell: top-right (representing 知 / knowledge focus) -->
+  <rect x="19.5" y="8.5" width="9" height="9" rx="1.5" fill="#f59e0b"/>
+</svg>

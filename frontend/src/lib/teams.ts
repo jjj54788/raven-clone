@@ -90,9 +90,9 @@ export interface TeamAssistantCatalogItem {
   requiresKey?: boolean;
 }
 
-const STORAGE_KEY = 'raven_teams_v1';
-const MODEL_KEYS_STORAGE = 'raven_model_keys_v1';
-const CUSTOM_ASSISTANTS_STORAGE = 'raven_custom_assistants_v1';
+const STORAGE_KEY = 'gewu_teams_v1';
+const MODEL_KEYS_STORAGE = 'gewu_model_keys_v1';
+const CUSTOM_ASSISTANTS_STORAGE = 'gewu_custom_assistants_v1';
 
 function looksCorrupted(text: string | undefined | null): boolean {
   if (!text) return false;
@@ -112,131 +112,134 @@ function teamLooksCorrupted(team: Team): boolean {
 const MEMBER_COLORS = ['#7C3AED', '#10B981', '#3B82F6', '#F59E0B', '#EC4899'];
 
 export const TEAM_ASSISTANT_CATALOG: TeamAssistantCatalogItem[] = [
+  // ---- American Providers ----
   {
-    id: 'gpt-5.1',
-    name: 'ChatGPT',
-    model: 'gpt-5.1',
-    provider: 'OpenAI',
-    type: 'chat',
-    role: '\u603b\u534f\u8c03',
-    summary: '\u8d1f\u8d23\u7edf\u7b79\u4e0e\u4efb\u52a1\u62c6\u89e3',
-    iconText: 'GPT',
-    accent: 'from-emerald-500 to-green-600',
-    source: 'builtin',
-    keyProvider: 'OpenAI',
-    requiresKey: true,
+    id: 'gpt-4.1', name: 'GPT 4.1', model: 'gpt-4.1', provider: 'OpenAI', type: 'chat',
+    role: '总协调', summary: '负责统筹与任务拆解',
+    iconText: 'GPT', accent: 'from-emerald-500 to-green-600',
+    source: 'builtin', keyProvider: 'OpenAI', requiresKey: true,
   },
   {
-    id: 'gpt-4o',
-    name: 'ChatGPT',
-    model: 'gpt-4o',
-    provider: 'OpenAI',
-    type: 'chat',
-    role: '\u884c\u4e1a\u7814\u7a76',
-    summary: '\u8d8b\u52bf\u89e3\u8bfb\u4e0e\u6d1e\u5bdf\u603b\u7ed3',
-    iconText: '4O',
-    accent: 'from-teal-500 to-emerald-600',
-    source: 'builtin',
-    keyProvider: 'OpenAI',
-    requiresKey: true,
+    id: 'gpt-4o', name: 'GPT 4o', model: 'gpt-4o', provider: 'OpenAI', type: 'chat',
+    role: '行业研究', summary: '趋势解读与洞察总结',
+    iconText: '4O', accent: 'from-teal-500 to-emerald-600',
+    source: 'builtin', keyProvider: 'OpenAI', requiresKey: true,
   },
   {
-    id: 'gpt-4.1-mini',
-    name: 'ChatGPT',
-    model: 'gpt-4.1-mini',
-    provider: 'OpenAI',
-    type: 'chat',
-    role: '\u5feb\u68c0\u52a9\u624b',
-    summary: '\u5feb\u901f\u8865\u5145\u4e0e\u6821\u9a8c\u8d44\u6599',
-    iconText: '4.1',
-    accent: 'from-cyan-500 to-sky-600',
-    source: 'builtin',
-    keyProvider: 'OpenAI',
-    requiresKey: true,
+    id: 'gpt-4.1-mini', name: 'GPT 4.1 Mini', model: 'gpt-4.1-mini', provider: 'OpenAI', type: 'chat',
+    role: '快检助手', summary: '快速补充与校验资料',
+    iconText: '4.1', accent: 'from-cyan-500 to-sky-600',
+    source: 'builtin', keyProvider: 'OpenAI', requiresKey: true,
   },
   {
-    id: 'grok-4.1',
-    name: 'Grok',
-    model: 'grok-4.1',
-    provider: 'xAI',
-    type: 'chat',
-    role: '\u7ade\u54c1\u60c5\u62a5',
-    summary: '\u8ddf\u8e2a\u7ade\u4e89\u683c\u5c40\u4e0e\u52a8\u6001',
-    iconText: 'X',
-    accent: 'from-neutral-700 to-neutral-900',
-    source: 'builtin',
-    keyProvider: 'xAI',
-    requiresKey: true,
+    id: 'o3-mini', name: 'o3 Mini', model: 'o3-mini', provider: 'OpenAI', type: 'chat',
+    role: '推理分析', summary: '复杂逻辑推理与数学',
+    iconText: 'O3', accent: 'from-green-600 to-emerald-700',
+    source: 'builtin', keyProvider: 'OpenAI', requiresKey: true,
   },
   {
-    id: 'gemini-3-pro',
-    name: 'Gemini',
-    model: 'gemini-3-pro',
-    provider: 'Google',
-    type: 'chat',
-    role: '\u6280\u672f\u8def\u7ebf',
-    summary: '\u8bc4\u4f30\u6a21\u578b\u548c\u6280\u672f\u7a81\u7834',
-    iconText: 'G',
-    accent: 'from-sky-500 to-blue-600',
-    source: 'builtin',
-    keyProvider: 'Google',
-    requiresKey: true,
+    id: 'claude-opus-4-6', name: 'Claude Opus 4.6', model: 'claude-opus-4-6', provider: 'Anthropic', type: 'chat',
+    role: '深度研究', summary: '长文分析与复杂推理',
+    iconText: 'CL', accent: 'from-orange-500 to-amber-600',
+    source: 'builtin', keyProvider: 'Anthropic', requiresKey: true,
   },
   {
-    id: 'deepseek-r1',
-    name: 'DeepSeek',
-    model: 'r1',
-    provider: 'DeepSeek',
-    type: 'chat',
-    role: '\u5546\u4e1a\u5316\u5206\u6790',
-    summary: '\u6d4b\u7b97\u5546\u4e1a\u673a\u4f1a\u4e0e\u98ce\u9669',
-    iconText: 'DS',
-    accent: 'from-indigo-500 to-purple-600',
-    source: 'builtin',
-    keyProvider: 'DeepSeek',
-    requiresKey: true,
+    id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', model: 'claude-sonnet-4-6', provider: 'Anthropic', type: 'chat',
+    role: '写作编辑', summary: '高质量文档与报告撰写',
+    iconText: 'CL', accent: 'from-amber-500 to-yellow-600',
+    source: 'builtin', keyProvider: 'Anthropic', requiresKey: true,
   },
   {
-    id: 'cohere-rerank',
-    name: 'Cohere',
-    model: 'rerank',
-    provider: 'Cohere',
-    type: 'rerank',
-    role: '\u8d44\u6599\u6392\u5e8f',
-    summary: '\u5bf9\u8d44\u6599\u8fdb\u884c\u76f8\u5173\u5ea6\u6392\u5e8f',
-    iconText: 'CR',
-    accent: 'from-amber-500 to-orange-500',
-    source: 'builtin',
-    keyProvider: 'Cohere',
-    requiresKey: true,
+    id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', model: 'gemini-2.5-pro', provider: 'Google', type: 'chat',
+    role: '技术路线', summary: '评估模型和技术突破',
+    iconText: 'G', accent: 'from-sky-500 to-blue-600',
+    source: 'builtin', keyProvider: 'Google', requiresKey: true,
   },
   {
-    id: 'doubao',
-    name: 'Doubao',
-    model: 'pro',
-    provider: 'ByteDance',
-    type: 'chat',
-    role: '\u4e2d\u6587\u6574\u7406',
-    summary: '\u672c\u5730\u5316\u5185\u5bb9\u91cd\u5199\u4e0e\u6574\u7406',
-    iconText: 'DB',
-    accent: 'from-rose-500 to-pink-500',
-    source: 'builtin',
-    keyProvider: 'ByteDance',
-    requiresKey: true,
+    id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', model: 'gemini-2.5-flash', provider: 'Google', type: 'chat',
+    role: '快速应答', summary: '轻量级高速推理',
+    iconText: 'G', accent: 'from-blue-500 to-indigo-600',
+    source: 'builtin', keyProvider: 'Google', requiresKey: true,
   },
   {
-    id: 'gemini-embedding',
-    name: 'Gemini',
-    model: 'embedding',
-    provider: 'Google',
-    type: 'embedding',
-    role: '\u5411\u91cf\u7d22\u5f15',
-    summary: '\u77e5\u8bc6\u5e93\u5411\u91cf\u5316',
-    iconText: 'EM',
-    accent: 'from-violet-500 to-purple-600',
-    source: 'builtin',
-    keyProvider: 'Google',
-    requiresKey: true,
+    id: 'grok-3', name: 'Grok 3', model: 'grok-3', provider: 'xAI', type: 'chat',
+    role: '竞品情报', summary: '跟踪竞争格局与动态',
+    iconText: 'X', accent: 'from-neutral-700 to-neutral-900',
+    source: 'builtin', keyProvider: 'xAI', requiresKey: true,
+  },
+  {
+    id: 'llama-3.3-70b', name: 'Llama 3.3 70B', model: 'llama-3.3-70b-versatile', provider: 'Groq', type: 'chat',
+    role: '开源推理', summary: '开源模型高速推理',
+    iconText: 'LL', accent: 'from-blue-600 to-violet-600',
+    source: 'builtin', keyProvider: 'Groq', requiresKey: true,
+  },
+  // ---- Chinese Providers ----
+  {
+    id: 'deepseek-chat', name: 'DeepSeek V3', model: 'deepseek-chat', provider: 'DeepSeek', type: 'chat',
+    role: '通用对话', summary: '高性价比通用对话模型',
+    iconText: 'DS', accent: 'from-indigo-500 to-purple-600',
+    source: 'builtin', keyProvider: 'DeepSeek', requiresKey: true,
+  },
+  {
+    id: 'deepseek-reasoner', name: 'DeepSeek R1', model: 'deepseek-reasoner', provider: 'DeepSeek', type: 'chat',
+    role: '商业化分析', summary: '测算商业机会与风险',
+    iconText: 'DS', accent: 'from-purple-500 to-violet-600',
+    source: 'builtin', keyProvider: 'DeepSeek', requiresKey: true,
+  },
+  {
+    id: 'qwen-max', name: 'Qwen Max', model: 'qwen-max', provider: 'Qwen', type: 'chat',
+    role: '中文旗舰', summary: '阿里通义千问旗舰模型',
+    iconText: 'QW', accent: 'from-violet-500 to-purple-600',
+    source: 'builtin', keyProvider: 'Qwen', requiresKey: true,
+  },
+  {
+    id: 'qwen-plus', name: 'Qwen Plus', model: 'qwen-plus', provider: 'Qwen', type: 'chat',
+    role: '中文增强', summary: '性价比极高的中文模型',
+    iconText: 'QW', accent: 'from-fuchsia-500 to-pink-600',
+    source: 'builtin', keyProvider: 'Qwen', requiresKey: true,
+  },
+  {
+    id: 'glm-4-plus', name: 'GLM-4 Plus', model: 'glm-4-plus', provider: 'Zhipu', type: 'chat',
+    role: '智谱旗舰', summary: '智谱清言旗舰推理模型',
+    iconText: 'ZP', accent: 'from-blue-500 to-cyan-600',
+    source: 'builtin', keyProvider: 'Zhipu', requiresKey: true,
+  },
+  {
+    id: 'moonshot-v1-128k', name: 'Kimi 128K', model: 'moonshot-v1-128k', provider: 'Moonshot', type: 'chat',
+    role: '长文理解', summary: '超长上下文理解与分析',
+    iconText: 'KM', accent: 'from-slate-600 to-zinc-800',
+    source: 'builtin', keyProvider: 'Moonshot', requiresKey: true,
+  },
+  {
+    id: 'yi-large', name: 'Yi Large', model: 'yi-large', provider: 'Yi', type: 'chat',
+    role: '双语理解', summary: '零一万物中英双语模型',
+    iconText: 'YI', accent: 'from-lime-500 to-green-600',
+    source: 'builtin', keyProvider: 'Yi', requiresKey: true,
+  },
+  {
+    id: 'step-2-16k', name: 'Step-2 16K', model: 'step-2-16k', provider: 'Stepfun', type: 'chat',
+    role: '多模态', summary: '阶跃星辰多模态模型',
+    iconText: 'SF', accent: 'from-pink-500 to-rose-600',
+    source: 'builtin', keyProvider: 'Stepfun', requiresKey: true,
+  },
+  {
+    id: 'doubao-pro', name: 'Doubao Pro', model: 'doubao-pro-32k', provider: 'Doubao', type: 'chat',
+    role: '中文整理', summary: '本地化内容重写与整理',
+    iconText: 'DB', accent: 'from-rose-500 to-pink-500',
+    source: 'builtin', keyProvider: 'Doubao', requiresKey: true,
+  },
+  // ---- Utility ----
+  {
+    id: 'cohere-rerank', name: 'Cohere', model: 'rerank', provider: 'Cohere', type: 'rerank',
+    role: '资料排序', summary: '对资料进行相关度排序',
+    iconText: 'CR', accent: 'from-amber-500 to-orange-500',
+    source: 'builtin', keyProvider: 'Cohere', requiresKey: true,
+  },
+  {
+    id: 'gemini-embedding', name: 'Gemini', model: 'embedding', provider: 'Google', type: 'embedding',
+    role: '向量索引', summary: '知识库向量化',
+    iconText: 'EM', accent: 'from-violet-500 to-purple-600',
+    source: 'builtin', keyProvider: 'Google', requiresKey: true,
   },
 ];
 
@@ -256,22 +259,35 @@ export interface CustomAssistantInput {
 
 const PROVIDER_ACCENTS: Record<string, string> = {
   openai: 'from-emerald-500 to-green-600',
+  anthropic: 'from-orange-500 to-amber-600',
   google: 'from-sky-500 to-blue-600',
   xai: 'from-neutral-700 to-neutral-900',
+  groq: 'from-blue-600 to-violet-600',
   deepseek: 'from-indigo-500 to-purple-600',
-  cohere: 'from-amber-500 to-orange-500',
+  qwen: 'from-violet-500 to-purple-600',
+  zhipu: 'from-blue-500 to-cyan-600',
+  moonshot: 'from-slate-600 to-zinc-800',
+  yi: 'from-lime-500 to-green-600',
+  stepfun: 'from-pink-500 to-rose-600',
+  doubao: 'from-rose-500 to-pink-500',
   bytedance: 'from-rose-500 to-pink-500',
-  anthropic: 'from-orange-500 to-amber-600',
+  cohere: 'from-amber-500 to-orange-500',
 };
 
 export const PROVIDER_OPTIONS = [
   { id: 'OpenAI', label: 'OpenAI' },
+  { id: 'Anthropic', label: 'Anthropic' },
   { id: 'Google', label: 'Google' },
   { id: 'xAI', label: 'xAI' },
+  { id: 'Groq', label: 'Groq' },
   { id: 'DeepSeek', label: 'DeepSeek' },
+  { id: 'Qwen', label: 'Qwen (通义千问)' },
+  { id: 'Zhipu', label: 'Zhipu (智谱)' },
+  { id: 'Moonshot', label: 'Moonshot (Kimi)' },
+  { id: 'Yi', label: 'Yi (零一万物)' },
+  { id: 'Stepfun', label: 'Stepfun (阶跃星辰)' },
+  { id: 'Doubao', label: 'Doubao (豆包)' },
   { id: 'Cohere', label: 'Cohere' },
-  { id: 'ByteDance', label: 'ByteDance' },
-  { id: 'Anthropic', label: 'Anthropic' },
 ];
 
 function normalizeProvider(provider: string): string {
@@ -603,11 +619,11 @@ export function createTeamFromDraft(draft: TeamDraft, ownerName?: string): Team 
 
 export function seedTeams(ownerName?: string): Team[] {
   const seedAssistants = resolveAssistants([
-    'gpt-5.1',
-    'grok-4.1',
-    'gpt-4.1-mini',
-    'gpt-4o',
-    'gemini-3-pro',
+    'gpt-4.1',
+    'claude-sonnet-4-6',
+    'deepseek-chat',
+    'gemini-2.5-pro',
+    'qwen-plus',
   ]).map((assistant) => ({ ...assistant, status: 'done' as const }));
   const leaderId = seedAssistants[0]?.id;
   const seededAt = formatSeedDate();
@@ -681,6 +697,231 @@ export function saveTeams(teams: Team[]) {
 
 export function findTeamById(teams: Team[], id: string): Team | undefined {
   return teams.find((team) => team.id === id);
+}
+
+// ---- Backend → Frontend Adapters ----
+
+function pickColorFromId(id: string): string {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) | 0;
+  return pickColor(Math.abs(hash));
+}
+
+function iconTextForProvider(provider: string): string {
+  const norm = normalizeProvider(provider);
+  if (norm === 'openai') return 'GPT';
+  if (norm === 'anthropic') return 'CL';
+  if (norm === 'google') return 'G';
+  if (norm === 'xai') return 'X';
+  if (norm === 'groq') return 'LL';
+  if (norm === 'deepseek') return 'DS';
+  if (norm === 'qwen') return 'QW';
+  if (norm === 'zhipu') return 'ZP';
+  if (norm === 'moonshot') return 'KM';
+  if (norm === 'yi') return 'YI';
+  if (norm === 'stepfun') return 'SF';
+  if (norm === 'doubao' || norm === 'bytedance') return 'DB';
+  if (norm === 'cohere') return 'CR';
+  return iconFromName(provider);
+}
+
+export function apiAssistantToFrontend(a: {
+  id: string; displayName: string; modelId: string; provider?: string | null;
+  roleTitle?: string | null; isLeader: boolean; sortOrder: number;
+  iconText?: string | null; accent?: string | null; asStatus?: string | null;
+}): TeamAssistant {
+  return {
+    id: a.id,
+    name: a.displayName,
+    model: a.modelId,
+    provider: a.provider ?? '',
+    type: 'chat',
+    role: a.roleTitle ?? '',
+    iconText: a.iconText ?? iconTextForProvider(a.provider ?? ''),
+    accent: a.accent ?? accentForProvider(a.provider ?? ''),
+    status: ((a.asStatus ?? 'IDLE').toLowerCase() as 'idle' | 'running' | 'done'),
+  };
+}
+
+export function apiMemberToFrontend(m: {
+  id: string; role: string; user: { id: string; name: string; email: string; avatarUrl?: string | null };
+}): TeamMember {
+  return {
+    id: m.user.id,
+    name: m.user.name,
+    role: (m.role.toLowerCase() === 'owner' ? 'owner' : 'member') as TeamMemberRole,
+    avatar: initialsFromName(m.user.name),
+    color: pickColorFromId(m.user.id),
+    online: false,
+  };
+}
+
+export function apiTeamSummaryToTeam(api: {
+  id: string; name: string; description?: string | null; tags: string[];
+  goal?: string | null; status?: string | null; canvasJson?: unknown;
+  ownerUserId: string; createdAt: string; updatedAt: string;
+}): Team {
+  return {
+    id: api.id,
+    name: api.name,
+    description: api.description ?? '',
+    tags: api.tags ?? [],
+    goal: api.goal ?? undefined,
+    status: ((api.status ?? 'ACTIVE').toLowerCase() as TeamStatus),
+    createdAt: api.createdAt,
+    updatedAt: api.updatedAt,
+    members: [],
+    assistants: [],
+    canvas: api.canvasJson ? (api.canvasJson as TeamCanvas) : undefined,
+  };
+}
+
+export function apiTeamDetailToTeam(api: {
+  id: string; name: string; description?: string | null; tags: string[];
+  goal?: string | null; status?: string | null; canvasJson?: unknown;
+  ownerUserId: string; createdAt: string; updatedAt: string;
+  members?: Array<{ id: string; role: string; user: { id: string; name: string; email: string; avatarUrl?: string | null } }>;
+  assistants?: Array<{ id: string; displayName: string; modelId: string; provider?: string | null; roleTitle?: string | null; isLeader: boolean; sortOrder: number; iconText?: string | null; accent?: string | null; asStatus?: string | null }>;
+}): Team {
+  const assistants = (api.assistants ?? []).map(apiAssistantToFrontend);
+  const leader = (api.assistants ?? []).find((a) => a.isLeader);
+  return {
+    id: api.id,
+    name: api.name,
+    description: api.description ?? '',
+    tags: api.tags ?? [],
+    goal: api.goal ?? undefined,
+    status: ((api.status ?? 'ACTIVE').toLowerCase() as TeamStatus),
+    createdAt: api.createdAt,
+    updatedAt: api.updatedAt,
+    members: (api.members ?? []).map(apiMemberToFrontend),
+    assistants,
+    leaderId: leader?.id ?? assistants[0]?.id,
+    canvas: api.canvasJson
+      ? (api.canvasJson as TeamCanvas)
+      : buildTeamCanvas(assistants, leader?.id ?? assistants[0]?.id),
+  };
+}
+
+// Convert a backend /ai/models item to a catalog item
+export function modelToCatalogItem(m: { id: string; name: string; provider: string }): TeamAssistantCatalogItem {
+  return {
+    id: m.id,
+    name: m.name,
+    model: m.id,
+    provider: m.provider,
+    type: 'chat',
+    role: '',
+    summary: '',
+    iconText: iconTextForProvider(m.provider),
+    accent: accentForProvider(m.provider),
+    source: 'builtin',
+    keyProvider: m.provider,
+    requiresKey: false,
+  };
+}
+
+// ---- User Custom Models ----
+
+const USER_MODELS_STORAGE = 'gewu_user_models_v1';
+
+export interface UserCustomModel {
+  id: string;       // model ID sent to API (e.g. "gpt-4o")
+  name: string;     // display name (e.g. "GPT 4o")
+  provider: string; // provider label matching API_PROVIDERS (e.g. "OpenAI")
+}
+
+const PROVIDER_MODEL_SUGGESTIONS: Record<string, { id: string; name: string }[]> = {
+  openai: [
+    { id: 'gpt-4.1', name: 'GPT 4.1' },
+    { id: 'gpt-4.1-mini', name: 'GPT 4.1 Mini' },
+    { id: 'gpt-4o', name: 'GPT 4o' },
+    { id: 'gpt-4o-mini', name: 'GPT 4o Mini' },
+    { id: 'o3-mini', name: 'o3 Mini' },
+  ],
+  anthropic: [
+    { id: 'claude-opus-4-6', name: 'Claude Opus 4.6' },
+    { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6' },
+    { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5' },
+  ],
+  google: [
+    { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro' },
+    { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
+  ],
+  xai: [
+    { id: 'grok-3', name: 'Grok 3' },
+    { id: 'grok-3-mini', name: 'Grok 3 Mini' },
+  ],
+  groq: [
+    { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B' },
+    { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B' },
+  ],
+  deepseek: [
+    { id: 'deepseek-chat', name: 'DeepSeek V3' },
+    { id: 'deepseek-reasoner', name: 'DeepSeek R1' },
+  ],
+  qwen: [
+    { id: 'qwen-max', name: 'Qwen Max' },
+    { id: 'qwen-plus', name: 'Qwen Plus' },
+    { id: 'qwen-turbo', name: 'Qwen Turbo' },
+  ],
+  zhipu: [
+    { id: 'glm-4-plus', name: 'GLM-4 Plus' },
+    { id: 'glm-4-flash', name: 'GLM-4 Flash' },
+  ],
+  moonshot: [
+    { id: 'moonshot-v1-128k', name: 'Kimi 128K' },
+    { id: 'moonshot-v1-32k', name: 'Kimi 32K' },
+    { id: 'moonshot-v1-8k', name: 'Kimi 8K' },
+  ],
+  yi: [
+    { id: 'yi-large', name: 'Yi Large' },
+    { id: 'yi-medium', name: 'Yi Medium' },
+  ],
+  stepfun: [
+    { id: 'step-2-16k', name: 'Step-2 16K' },
+    { id: 'step-1-8k', name: 'Step-1 8K' },
+  ],
+  doubao: [
+    { id: 'doubao-pro-32k', name: 'Doubao Pro' },
+    { id: 'doubao-lite-32k', name: 'Doubao Lite' },
+  ],
+  cohere: [
+    { id: 'command-r-plus', name: 'Command R+' },
+    { id: 'command-r', name: 'Command R' },
+  ],
+};
+
+export function getProviderModelSuggestions(provider: string): { id: string; name: string }[] {
+  return PROVIDER_MODEL_SUGGESTIONS[normalizeProvider(provider)] ?? [];
+}
+
+export function loadUserModels(): UserCustomModel[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(USER_MODELS_STORAGE);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((m): m is UserCustomModel =>
+      m && typeof m.id === 'string' && typeof m.name === 'string' && typeof m.provider === 'string'
+    );
+  } catch { return []; }
+}
+
+export function saveUserModels(models: UserCustomModel[]): void {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(USER_MODELS_STORAGE, JSON.stringify(models));
+}
+
+export function addUserModel(model: UserCustomModel): void {
+  const existing = loadUserModels();
+  if (existing.some((m) => m.id === model.id)) return;
+  saveUserModels([...existing, model]);
+}
+
+export function removeUserModel(modelId: string): void {
+  saveUserModels(loadUserModels().filter((m) => m.id !== modelId));
 }
 
 
